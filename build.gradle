@@ -59,11 +59,11 @@ Gem::Specification.new do |spec|
   spec.name          = "${project.name}"
   spec.version       = "${project.version}"
   spec.authors       = ["Sadayuki Furuhashi"]
-  spec.summary       = %[JDBC output plugin for Embulk]
-  spec.description   = %[Inserts or updates records to a table.]
+  spec.summary       = %[MapReduce executor plugin for Embulk]
+  spec.description   = %[Executes tasks on Hadoop.]
   spec.email         = ["frsyuki@gmail.com"]
   spec.licenses      = ["Apache 2.0"]
-  spec.homepage      = "https://github.com/embulk/embulk-output-jdbc"
+  spec.homepage      = "https://github.com/embulk/embulk-executor-mapreduce"
 
   spec.files         = `git ls-files`.split("\n") + Dir["classpath/*.jar"]
   spec.test_files    = spec.files.grep(%r"^(test|spec)/")

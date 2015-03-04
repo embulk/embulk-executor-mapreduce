@@ -18,6 +18,7 @@ public class EmbulkInputFormat
     public List<InputSplit> getSplits(JobContext context)
         throws IOException, InterruptedException
     {
+        // TODO combin multiple tasks to 1 map task is not implemented yet.
         int taskCount = EmbulkMapReduce.getTaskCount(context.getConfiguration());
         ImmutableList.Builder<InputSplit> builder = ImmutableList.builder();
         for (int i=0; i < taskCount; i++) {

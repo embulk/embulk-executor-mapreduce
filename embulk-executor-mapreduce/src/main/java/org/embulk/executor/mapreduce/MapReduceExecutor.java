@@ -73,6 +73,5 @@ public class MapReduceExecutor
         }
 
         // TODO shutdown hook
-
     }
 }
