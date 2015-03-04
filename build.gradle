@@ -1,0 +1,79 @@
+
+plugins {
+    id 'com.jfrog.bintray' version '1.1'
+    id 'com.github.jruby-gradle.base' version '0.1.5'
+    id 'java'
+}
+import com.github.jrubygradle.JRubyExec
+
+allprojects {
+    group = 'org.embulk.executor.mapreduce'
+    version = '0.1.0'
+}
+
+subprojects {
+    apply plugin: 'maven'  // install jar files to the local repo: $ gradle install
+    apply plugin: 'java'
+    //apply plugin: 'findbugs'
+    //apply plugin: 'jacoco'
+    apply plugin: 'com.github.jruby-gradle.base'
+
+    repositories {
+        mavenLocal()
+        mavenCentral()
+        jcenter()
+    }
+
+    configurations {
+        provided
+    }
+
+    dependencies {
+        compile  'org.embulk:embulk-core:0.5.1'
+        provided 'org.embulk:embulk-core:0.5.1'
+        compile 'org.apache.hadoop:hadoop-client:2.6.0'
+        testCompile 'junit:junit:4.+'
+    }
+
+    tasks.withType(JavaCompile) {
+        options.compilerArgs << "-Xlint:unchecked" << "-Xlint:deprecation"
+    }
+
+    task classpath(type: Copy, dependsOn: ["jar"]) {
+        doFirst { file('classpath').deleteDir() }
+        from (configurations.runtime - configurations.provided + files(jar.archivePath))
+        into 'classpath'
+    }
+    clean { delete 'classpath' }
+
+    task gem(type: JRubyExec, dependsOn: ['build', 'gemspec', 'classpath']) {
+        jrubyArgs '-rrubygems/gem_runner', "-eGem::GemRunner.new.run(ARGV)", 'build'
+        script "${project.projectDir.absolutePath}/build/gemspec"
+        doLast { ant.move(file: "${project.name}-${project.version}.gem", todir: "${parent.projectDir}/pkg") }
+    }
+
+    task gemspec << {
+        file('build').mkdirs();
+        file('build/gemspec').write($/
+Gem::Specification.new do |spec|
+  spec.name          = "${project.name}"
+  spec.version       = "${project.version}"
+  spec.authors       = ["Sadayuki Furuhashi"]
+  spec.summary       = %[JDBC output plugin for Embulk]
+  spec.description   = %[Inserts or updates records to a table.]
+  spec.email         = ["frsyuki@gmail.com"]
+  spec.licenses      = ["Apache 2.0"]
+  spec.homepage      = "https://github.com/embulk/embulk-output-jdbc"
+
+  spec.files         = `git ls-files`.split("\n") + Dir["classpath/*.jar"]
+  spec.test_files    = spec.files.grep(%r"^(test|spec)/")
+  spec.require_paths = ["lib"]
+end
+/$)
+    }
+}
+
+//task gempush << {
+//    "gem push pkg/embulk-output-hdp2-${project.version}.gem".execute().waitFor()
+//    "gem push pkg/embulk-output-apache2-${project.version}.gem".execute().waitFor()
+//}
