@@ -27,37 +27,6 @@ public class MapReduceExecutor
 {
     private final ConfigSource systemConfig;
 
-    static {
-        try {
-            Field f = Cluster.class.getDeclaredField("frameworkLoader");
-            f.setAccessible(true);
-            f.set(null, ServiceLoader.load(ClientProtocolProvider.class, ClientProtocolProvider.class.getClassLoader()));
-        } catch (NoSuchFieldException | IllegalAccessException ex) {
-            ex.printStackTrace(System.err);
-            // TODO only warning
-            throw Throwables.propagate(ex);
-        }
-
-        try {
-            Field f = FileSystem.class.getDeclaredField("SERVICE_FILE_SYSTEMS");
-            f.setAccessible(true);
-            Map<String, Class<? extends FileSystem>> fileSystems = (Map<String, Class<? extends FileSystem>>) f.get(null);
-            ServiceLoader<FileSystem> serviceLoader = ServiceLoader.load(FileSystem.class, FileSystem.class.getClassLoader());
-            for (FileSystem fs : serviceLoader) {
-                System.out.println("fs: "+fs);
-                fileSystems.put(fs.getScheme(), fs.getClass());
-            }
-
-            Field flag = FileSystem.class.getDeclaredField("FILE_SYSTEMS_LOADED");
-            flag.setAccessible(true);
-            flag.setBoolean(null, true);
-        } catch (NoSuchFieldException | IllegalAccessException ex) {
-            ex.printStackTrace(System.err);
-            // TODO only warning
-            throw Throwables.propagate(ex);
-        }
-    }
-
     @Inject
     public MapReduceExecutor(@ForSystemConfig ConfigSource systemConfig)
     {
@@ -74,7 +43,10 @@ public class MapReduceExecutor
             {
                 task.setExecConfig(config);
                 task.setProcessTask(procTask);
-                run(task, taskCount, state);
+                // hadoop uses ServiceLoader using context classloader to load some implementations
+                try (SetContextClassLoader closeLater = new SetContextClassLoader(MapReduceExecutor.class.getClassLoader())) {
+                    run(task, taskCount, state);
+                }
             }
         });
     }
