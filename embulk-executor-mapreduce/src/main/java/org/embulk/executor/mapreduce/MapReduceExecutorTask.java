@@ -1,5 +1,6 @@
 package org.embulk.executor.mapreduce;
 
+import java.util.List;
 import org.embulk.config.Config;
 import org.embulk.config.ConfigInject;
 import org.embulk.config.ConfigDefault;
@@ -12,8 +13,12 @@ public interface MapReduceExecutorTask
         extends Task
 {
     @Config("job_name")
-    @ConfigDefault("embulk")
+    @ConfigDefault("\"embulk\"")
     public String getJobName();
+
+    @Config("config_files")
+    @ConfigDefault("[]")
+    public List<String> getConfigFiles();
 
     @ConfigInject
     public ModelManager getModelManager();
