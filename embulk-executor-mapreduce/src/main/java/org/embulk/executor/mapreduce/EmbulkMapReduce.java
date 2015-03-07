@@ -78,19 +78,21 @@ public class EmbulkMapReduce
         return new EmbulkService(systemConfig).getInjector();
     }
 
-    public static void writeAttemptStateFile(JobContext context, AttemptState state) throws IOException
+    public static void writeAttemptStateFile(JobContext context, AttemptState state,
+            ModelManager modelManager) throws IOException
     {
         Path path = new Path(context.getWorkingDirectory(), state.getAttemptId().toString());
         try (FSDataOutputStream out = path.getFileSystem(context.getConfiguration()).create(path, true)) {
-            state.writeTo(out);
+            state.writeTo(out, modelManager);
         }
     }
 
-    public static AttemptState readAttemptStateFile(JobContext context, TaskAttemptID id) throws IOException
+    public static AttemptState readAttemptStateFile(JobContext context, TaskAttemptID id,
+            ModelManager modelManager) throws IOException
     {
         Path path = new Path(context.getWorkingDirectory(), id.toString());
         try (FSDataInputStream in = path.getFileSystem(context.getConfiguration()).open(path)) {
-            return AttemptState.readFrom(in);
+            return AttemptState.readFrom(in, modelManager);
         }
     }
 
@@ -99,6 +101,7 @@ public class EmbulkMapReduce
     {
         private Context context;
         private Injector injector;
+        private ModelManager modelManager;
         private MapReduceExecutorTask task;
         private ExecSession session;
 
@@ -106,6 +109,7 @@ public class EmbulkMapReduce
         {
             this.context = context;
             this.injector = newEmbulkInstance(context.getConfiguration());
+            this.modelManager = injector.getInstance(ModelManager.class);
             this.task = getExecutorTask(injector, context.getConfiguration());
             this.session = new ExecSession(injector, task.getExecConfig());
         }
@@ -139,7 +143,7 @@ public class EmbulkMapReduce
                     public void started()
                     {
                         try {
-                            writeAttemptStateFile(context, state);
+                            writeAttemptStateFile(context, state, modelManager);
                         } catch (IOException e) {
                             throw new RuntimeException(e);
                         }
@@ -149,7 +153,7 @@ public class EmbulkMapReduce
                     {
                         state.setInputCommitReport(report);
                         try {
-                            writeAttemptStateFile(context, state);
+                            writeAttemptStateFile(context, state, modelManager);
                         } catch (IOException e) {
                             throw new RuntimeException(e);
                         }
@@ -159,7 +163,7 @@ public class EmbulkMapReduce
                     {
                         state.setOutputCommitReport(report);
                         try {
-                            writeAttemptStateFile(context, state);
+                            writeAttemptStateFile(context, state, modelManager);
                         } catch (IOException e) {
                             throw new RuntimeException(e);
                         }
@@ -171,7 +175,7 @@ public class EmbulkMapReduce
             } catch (Throwable ex) {
                 try {
                     state.setException(ex);
-                    writeAttemptStateFile(context, state);
+                    writeAttemptStateFile(context, state, modelManager);
                 } catch (Throwable e) {
                     e.addSuppressed(ex);
                     throw e;
