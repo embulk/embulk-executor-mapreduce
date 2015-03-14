@@ -1,12 +1,15 @@
 package org.embulk.executor.mapreduce;
 
+import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.io.IOException;
 import com.google.inject.Injector;
 import com.google.common.base.Throwables;
+import com.google.common.collect.ImmutableList;
 import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.io.IntWritable;
@@ -32,6 +35,7 @@ import org.embulk.EmbulkService;
 public class EmbulkMapReduce
 {
     private static final String CK_SYSTEM_CONFIG = "embulk.mapreduce.systemConfig";
+    private static final String CK_STATE_DIRECTORY_PATH = "embulk.mapreduce.stateDirectorypath";
     private static final String CK_TASK_COUNT = "embulk.mapreduce.taskCount";
     private static final String CK_TASK = "embulk.mapreduce.task";
 
@@ -61,6 +65,16 @@ public class EmbulkMapReduce
         return config.getInt(CK_TASK_COUNT, 0);
     }
 
+    public static void setStateDirectoryPath(Configuration config, Path path)
+    {
+        config.set(CK_STATE_DIRECTORY_PATH, path.toString());
+    }
+
+    public static Path getStateDirectoryPath(Configuration config)
+    {
+        return new Path(config.get(CK_STATE_DIRECTORY_PATH));
+    }
+
     public static void setExecutorTask(Configuration config, ModelManager modelManager, MapReduceExecutorTask task)
     {
         config.set(CK_TASK, modelManager.writeObject(task));
@@ -78,21 +92,37 @@ public class EmbulkMapReduce
         return new EmbulkService(systemConfig).getInjector();
     }
 
-    public static void writeAttemptStateFile(JobContext context, AttemptState state,
-            ModelManager modelManager) throws IOException
+    public static List<TaskAttemptID> listAttempts(Configuration config,
+            Path stateDir) throws IOException
     {
-        Path path = new Path(context.getWorkingDirectory(), state.getAttemptId().toString());
-        try (FSDataOutputStream out = path.getFileSystem(context.getConfiguration()).create(path, true)) {
-            state.writeTo(out, modelManager);
+        FileStatus[] stats = stateDir.getFileSystem(config).listStatus(stateDir);
+        ImmutableList.Builder<TaskAttemptID> builder = ImmutableList.builder();
+        for (FileStatus stat : stats) {
+            String name = stat.getPath().getName();
+            try {
+                builder.add(TaskAttemptID.forName(name));
+            } catch (IllegalArgumentException ex) {
+                // ignore
+            }
+        }
+        return builder.build();
+    }
+
+    public static AttemptState readAttemptStateFile(Configuration config,
+            Path stateDir, TaskAttemptID id, ModelManager modelManager) throws IOException
+    {
+        Path path = new Path(stateDir, id.toString());
+        try (FSDataInputStream in = path.getFileSystem(config).open(path)) {
+            return AttemptState.readFrom(in, modelManager);
         }
     }
 
-    public static AttemptState readAttemptStateFile(JobContext context, TaskAttemptID id,
-            ModelManager modelManager) throws IOException
+    public static void writeAttemptStateFile(Configuration config,
+            Path stateDir, AttemptState state, ModelManager modelManager) throws IOException
     {
-        Path path = new Path(context.getWorkingDirectory(), id.toString());
-        try (FSDataInputStream in = path.getFileSystem(context.getConfiguration()).open(path)) {
-            return AttemptState.readFrom(in, modelManager);
+        Path path = new Path(stateDir, state.getAttemptId().toString());
+        try (FSDataOutputStream out = path.getFileSystem(config).create(path, true)) {
+            state.writeTo(out, modelManager);
         }
     }
 
@@ -135,6 +165,8 @@ public class EmbulkMapReduce
 
         private void process(final Context context, int taskIndex) throws IOException, InterruptedException
         {
+            final Configuration config = context.getConfiguration();
+            final Path stateDir = getStateDirectoryPath(config);
             final AttemptState state = new AttemptState(context.getTaskAttemptID(), taskIndex);
 
             try {
@@ -143,7 +175,7 @@ public class EmbulkMapReduce
                     public void started()
                     {
                         try {
-                            writeAttemptStateFile(context, state, modelManager);
+                            writeAttemptStateFile(config, stateDir, state, modelManager);
                         } catch (IOException e) {
                             throw new RuntimeException(e);
                         }
@@ -153,7 +185,7 @@ public class EmbulkMapReduce
                     {
                         state.setInputCommitReport(report);
                         try {
-                            writeAttemptStateFile(context, state, modelManager);
+                            writeAttemptStateFile(config, stateDir, state, modelManager);
                         } catch (IOException e) {
                             throw new RuntimeException(e);
                         }
@@ -163,7 +195,7 @@ public class EmbulkMapReduce
                     {
                         state.setOutputCommitReport(report);
                         try {
-                            writeAttemptStateFile(context, state, modelManager);
+                            writeAttemptStateFile(config, stateDir, state, modelManager);
                         } catch (IOException e) {
                             throw new RuntimeException(e);
                         }
@@ -175,7 +207,7 @@ public class EmbulkMapReduce
             } catch (Throwable ex) {
                 try {
                     state.setException(ex);
-                    writeAttemptStateFile(context, state, modelManager);
+                    writeAttemptStateFile(config, stateDir, state, modelManager);
                 } catch (Throwable e) {
                     e.addSuppressed(ex);
                     throw e;

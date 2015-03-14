@@ -20,6 +20,10 @@ public interface MapReduceExecutorTask
     @ConfigDefault("[]")
     public List<String> getConfigFiles();
 
+    @Config("state_path")
+    @ConfigDefault("\"/tmp/embulk\"")
+    public String getStatePath();
+
     @ConfigInject
     public ModelManager getModelManager();
 

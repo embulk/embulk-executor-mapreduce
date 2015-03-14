@@ -29,8 +29,8 @@ public class AttemptState
     private final TaskAttemptID attemptId;
     private final int taskIndex;
     private Optional<String> exception;
-    private CommitReport inputCommitReport;
-    private CommitReport outputCommitReport;
+    private Optional<CommitReport> inputCommitReport;
+    private Optional<CommitReport> outputCommitReport;
 
     public AttemptState(TaskAttemptID attemptId, int taskIndex)
     {
@@ -39,12 +39,24 @@ public class AttemptState
     }
 
     @JsonCreator
-    public AttemptState(
-            @JsonProperty("attempt") TaskAttemptID attemptId,
+    AttemptState(
+            @JsonProperty("attempt") String attemptId,
             @JsonProperty("taskIndex") int taskIndex,
             @JsonProperty("exception") Optional<String> exception,
-            @JsonProperty("inputCommitReport") CommitReport inputCommitReport,
-            @JsonProperty("outputCommitReport") CommitReport outputCommitReport)
+            @JsonProperty("inputCommitReport") Optional<CommitReport> inputCommitReport,
+            @JsonProperty("outputCommitReport") Optional<CommitReport> outputCommitReport)
+    {
+        this(TaskAttemptID.forName(attemptId),
+                taskIndex, exception,
+                inputCommitReport, outputCommitReport);
+    }
+
+    public AttemptState(
+            TaskAttemptID attemptId,
+            int taskIndex,
+            Optional<String> exception,
+            Optional<CommitReport> inputCommitReport,
+            Optional<CommitReport> outputCommitReport)
     {
         this.attemptId = attemptId;
         this.taskIndex = taskIndex;
@@ -71,6 +83,7 @@ public class AttemptState
         return taskIndex;
     }
 
+    @JsonIgnore
     public void setException(Throwable exception)
     {
         ByteArrayOutputStream os = new ByteArrayOutputStream();
@@ -82,6 +95,7 @@ public class AttemptState
         setException(new String(os.toByteArray(), StandardCharsets.UTF_8));
     }
 
+    @JsonIgnore
     public void setException(String exception)
     {
         this.exception = Optional.of(exception);
@@ -94,25 +108,27 @@ public class AttemptState
     }
 
     @JsonProperty("inputCommitReport")
-    public CommitReport getInputCommitReport()
+    public Optional<CommitReport> getInputCommitReport()
     {
         return inputCommitReport;
     }
 
     @JsonProperty("outputCommitReport")
-    public CommitReport getOutputCommitReport()
+    public Optional<CommitReport> getOutputCommitReport()
     {
         return outputCommitReport;
     }
 
+    @JsonIgnore
     public void setInputCommitReport(CommitReport inputCommitReport)
     {
-        this.inputCommitReport = inputCommitReport;
+        this.inputCommitReport = Optional.of(inputCommitReport);
     }
 
+    @JsonIgnore
     public void setOutputCommitReport(CommitReport outputCommitReport)
     {
-        this.outputCommitReport = outputCommitReport;
+        this.outputCommitReport = Optional.of(outputCommitReport);
     }
 
     public void writeTo(OutputStream out, ModelManager modelManager) throws IOException
@@ -123,7 +139,7 @@ public class AttemptState
 
     public static AttemptState readFrom(InputStream in, ModelManager modelManager) throws IOException
     {
-        Scanner s = new Scanner(in, "UTF-8").useDelimiter("\\0");
+        Scanner s = new Scanner(in, "UTF-8").useDelimiter("\\A");  // TODO
         if (s.hasNext()) {
             return modelManager.readObject(AttemptState.class, s.next());
         } else {
