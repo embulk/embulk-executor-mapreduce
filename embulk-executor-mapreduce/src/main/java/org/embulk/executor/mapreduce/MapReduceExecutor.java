@@ -3,6 +3,7 @@ package org.embulk.executor.mapreduce;
 import java.util.List;
 import java.io.IOException;
 import java.io.EOFException;
+import org.slf4j.Logger;
 import org.joda.time.format.DateTimeFormat;
 import com.google.inject.Inject;
 import com.google.common.base.Throwables;
@@ -15,6 +16,7 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.mapreduce.JobContext;
 import org.apache.hadoop.mapreduce.Cluster;
 import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.mapreduce.Counters;
 import org.apache.hadoop.mapreduce.TaskAttemptID;
 import org.apache.hadoop.mapreduce.TaskCompletionEvent;
 import org.apache.hadoop.mapreduce.lib.output.NullOutputFormat;
@@ -38,6 +40,7 @@ import org.apache.hadoop.fs.FileSystem;
 public class MapReduceExecutor
         implements ExecutorPlugin
 {
+    private final Logger log = Exec.getLogger(MapReduceExecutor.class);
     private final ConfigSource systemConfig;
 
     @Inject
@@ -104,17 +107,29 @@ public class MapReduceExecutor
 
         try {
             job.submit();
-            job.waitForCompletion(true);
+
+            int interval = Job.getCompletionPollInterval(job.getConfiguration()/*job.getCluster().getConf()*/);
+            while (job.isComplete()) {
+                //if (job.getState() == JobStatus.State.PREP) {
+                //    continue;
+                //}
+                log.info(String.format("map %.1f%% reduce %.1f%%",
+                            job.mapProgress() * 100, job.reduceProgress() * 100));
+                Thread.sleep(interval);
+
+                updateProcessState(job, taskCount, stateDir, state, modelManager);
+            }
+
+            log.info(String.format("map %.1f%% reduce %.1f%%",
+                        job.mapProgress() * 100, job.reduceProgress() * 100));
+            updateProcessState(job, taskCount, stateDir, state, modelManager);
+
+            Counters counters = job.getCounters();
+            if (counters != null) {
+                log.info(counters.toString());
+            }
         } catch (IOException | InterruptedException | ClassNotFoundException e) {
             throw Throwables.propagate(e);
-        }
-
-        // TODO run updateProcessState periodically during waiting for job completion
-        try {
-            System.out.println("success: "+job.isSuccessful());
-            updateProcessState(job, taskCount, stateDir, state, modelManager);
-        } catch (IOException ex) {
-            throw new RuntimeException(ex);
         }
     }
 
@@ -130,7 +145,6 @@ public class MapReduceExecutor
     private void updateProcessState(Job job, int taskCount, Path stateDir,
             ProcessState state, ModelManager modelManager) throws IOException
     {
-        System.out.println("updateProcessState");
         AttemptReport[] lastAttemptReports = new AttemptReport[taskCount];
 
         List<AttemptReport> reports = getAttemptReports(job.getConfiguration(), stateDir, modelManager);
@@ -223,9 +237,7 @@ public class MapReduceExecutor
         ImmutableList.Builder<TaskCompletionEvent> builder = ImmutableList.builder();
         while (true) {
             try {
-                System.out.println("reports: "+job.getTaskReports(org.apache.hadoop.mapreduce.TaskType.MAP).length);
                 TaskCompletionEvent[] events = job.getTaskCompletionEvents(0, TASK_EVENT_FETCH_SIZE);
-                System.out.println("events: "+events.length+" "+Iterators.forArray(events));
                 builder.addAll(Iterators.forArray(events));
                 if (events.length < TASK_EVENT_FETCH_SIZE) {
                     break;
@@ -245,10 +257,8 @@ public class MapReduceExecutor
             try {
                 AttemptState state = EmbulkMapReduce.readAttemptStateFile(config,
                         stateDir, aid, modelManager);
-                System.out.println("report state: "+state);
                 builder.add(new AttemptReport(aid, state));
             } catch (EOFException ex) {  // plus Not Found exception
-                System.out.println("report state: null");
                 builder.add(new AttemptReport(aid, null));
             }
         }
