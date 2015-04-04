@@ -6,22 +6,25 @@ import java.io.EOFException;
 import org.slf4j.Logger;
 import org.joda.time.format.DateTimeFormat;
 import com.google.inject.Inject;
+import com.google.common.base.Optional;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterators;
 import org.apache.hadoop.io.IntWritable;
-import org.apache.hadoop.io.Text;
+import org.apache.hadoop.io.NullWritable;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.mapreduce.JobContext;
 import org.apache.hadoop.mapreduce.Cluster;
 import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.mapreduce.Counters;
+import org.apache.hadoop.mapreduce.TaskType;
 import org.apache.hadoop.mapreduce.TaskAttemptID;
 import org.apache.hadoop.mapreduce.TaskCompletionEvent;
 import org.apache.hadoop.mapreduce.lib.output.NullOutputFormat;
 import org.embulk.exec.ForSystemConfig;
 import org.embulk.config.ConfigSource;
+import org.embulk.config.TaskSource;
 import org.embulk.config.ModelManager;
 import org.embulk.spi.Exec;
 import org.embulk.spi.ExecSession;
@@ -29,6 +32,7 @@ import org.embulk.spi.ExecutorPlugin;
 import org.embulk.spi.ExecutorPlugin;
 import org.embulk.spi.ProcessTask;
 import org.embulk.spi.ProcessState;
+import org.embulk.spi.Schema;
 import org.embulk.spi.time.Timestamp;
 
 import java.util.Map;
@@ -50,24 +54,57 @@ public class MapReduceExecutor
     }
 
     @Override
-    public void transaction(final ConfigSource config, ExecutorPlugin.Control control)
+    public void transaction(ConfigSource config, Schema outputSchema, final int inputTaskCount,
+            ExecutorPlugin.Control control)
     {
         final MapReduceExecutorTask task = config.loadConfig(MapReduceExecutorTask.class);
+        task.setExecConfig(config);
+
+        final int reduceTaskCount;
+
+        if (task.getPartition().isPresent()) {
+            reduceTaskCount = task.getReducers().or(inputTaskCount);
+            if (reduceTaskCount <= 0) {
+                throw new ConfigException("Reducers must be larger than 1 if partition: is set");
+            }
+            ConfigSource partitionConfig = task.getPartition().get();
+            String partitioningType = partitionConfig.get(String.class, "type");
+            Partitioning partitioning = newPartitioning(partitioningType);
+            TaskSource partitioningTask = partitioning.configure(partitionConfig, outputSchema, reduceTaskCount);
+            task.setPartitioningType(partitioningType);
+            task.setPartitioningTask(Optional.of(partitioningTask));
+        } else {
+            reduceTaskCount = 0;
+            task.setPartitioningType(Optional<String>.absent());
+            task.setPartitioningTask(Optional<TaskSource>.absent());
+        }
 
         control.transaction(new ExecutorPlugin.Executor() {
-            public void execute(ProcessTask procTask, int taskCount, ProcessState state)
+            public void execute(ProcessTask procTask, ProcessState state)
             {
-                task.setExecConfig(config);
                 task.setProcessTask(procTask);
+
                 // hadoop uses ServiceLoader using context classloader to load some implementations
                 try (SetContextClassLoader closeLater = new SetContextClassLoader(MapReduceExecutor.class.getClassLoader())) {
-                    run(task, taskCount, state);
+                    run(task, inputTaskCount, reduceTaskCount, state);
                 }
             }
         });
     }
 
-    void run(MapReduceExecutorTask task, int taskCount, ProcessState state)
+    static Partitioning newPartitioning(String type)
+    {
+        switch (type) {
+        case "timestamp":
+            return new TimestampPartitioning();
+            break;
+        default:
+            throw new ConfigException("Unknown partition type '"+type;"'");
+        }
+    }
+
+    void run(MapReduceExecutorTask task, boolean usePartitioning,
+            int mapTaskCount, int reduceTaskCount, ProcessState state)
     {
         ModelManager modelManager = task.getModelManager();
 
@@ -89,26 +126,38 @@ public class MapReduceExecutor
         job.setJobName(task.getJobName());
         EmbulkMapReduce.setSystemConfig(job.getConfiguration(), modelManager, systemConfig);
         EmbulkMapReduce.setExecutorTask(job.getConfiguration(), modelManager, task);
-        EmbulkMapReduce.setTaskCount(job.getConfiguration(), taskCount);
+        EmbulkMapReduce.setMapTaskCount(job.getConfiguration(), mapTaskCount);  // used by EmbulkInputFormat
         EmbulkMapReduce.setStateDirectoryPath(job.getConfiguration(), stateDir);
 
         job.setInputFormatClass(EmbulkInputFormat.class);
-        job.setMapperClass(EmbulkMapReduce.EmbulkMapper.class);
-        job.setReducerClass(EmbulkMapReduce.EmbulkReducer.class);
 
-        // dummy
-        job.setMapOutputKeyClass(IntWritable.class);
-        job.setMapOutputValueClass(Text.class);
+        if (reduceTaskCount > 0) {
+            job.setMapperClass(EmbulkPartitioningMapReduce.EmbulkPartitioningMapper.class);
+            job.setMapOutputKeyClass(BufferWritable.class);
+            job.setMapOutputValueClass(PageWritable.class);
 
-        // dummy
+            job.setReducerClass(EmbulkPartitioningMapReduce.EmbulkPartitioningReducer.class);
+
+            conf.setNumReduceTasks(reduceTaskCount);
+
+        } else {
+            job.setMapperClass(EmbulkMapReduce.EmbulkMapper.class);
+            job.setMapOutputKeyClass(NullWritable.class);
+            job.setMapOutputValueClass(NullWritable.class);
+
+            job.setReducerClass(EmbulkMapReduce.EmbulkReducer.class);
+
+            conf.setNumReduceTasks(0);
+        }
+
         job.setOutputFormatClass(NullOutputFormat.class);
-        job.setOutputKeyClass(Text.class);
-        job.setOutputValueClass(Text.class);
+        job.setOutputKeyClass(NullWritable.class);
+        job.setOutputValueClass(NullWritable.class);
 
         try {
             job.submit();
 
-            int interval = Job.getCompletionPollInterval(job.getConfiguration()/*job.getCluster().getConf()*/);
+            int interval = Job.getCompletionPollInterval(job.getConfiguration());
             while (job.isComplete()) {
                 //if (job.getState() == JobStatus.State.PREP) {
                 //    continue;
@@ -117,12 +166,12 @@ public class MapReduceExecutor
                             job.mapProgress() * 100, job.reduceProgress() * 100));
                 Thread.sleep(interval);
 
-                updateProcessState(job, taskCount, stateDir, state, modelManager);
+                updateProcessState(job, mapTaskCount, stateDir, state, modelManager);
             }
 
             log.info(String.format("map %.1f%% reduce %.1f%%",
                         job.mapProgress() * 100, job.reduceProgress() * 100));
-            updateProcessState(job, taskCount, stateDir, state, modelManager);
+            updateProcessState(job, mapTaskCount, stateDir, state, modelManager);
 
             Counters counters = job.getCounters();
             if (counters != null) {
@@ -142,10 +191,10 @@ public class MapReduceExecutor
             + String.format("%09d", time.getNano());
     }
 
-    private void updateProcessState(Job job, int taskCount, Path stateDir,
+    private void updateProcessState(Job job, int mapTaskCount, Path stateDir,
             ProcessState state, ModelManager modelManager) throws IOException
     {
-        AttemptReport[] lastAttemptReports = new AttemptReport[taskCount];
+        AttemptReport[] lastAttemptReports = new AttemptReport[mapTaskCount];
 
         List<AttemptReport> reports = getAttemptReports(job.getConfiguration(), stateDir, modelManager);
         for (AttemptReport report : reports) {
@@ -194,6 +243,11 @@ public class MapReduceExecutor
             this.state = state;
         }
 
+        public boolean isMapTask()
+        {
+            return attemptId.getTaskID().getTaskType() == TaskType.MAP;
+        }
+
         public boolean isStarted()
         {
             return state != null;
@@ -201,7 +255,7 @@ public class MapReduceExecutor
 
         public boolean isFinished()
         {
-            return true;
+            return true;  // TODO true if attempt is done
         }
 
         public boolean isFailed()

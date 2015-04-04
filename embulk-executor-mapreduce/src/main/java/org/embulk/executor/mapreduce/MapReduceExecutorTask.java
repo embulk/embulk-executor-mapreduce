@@ -1,6 +1,7 @@
 package org.embulk.executor.mapreduce;
 
 import java.util.List;
+import com.google.common.base.Optional;
 import org.embulk.config.Config;
 import org.embulk.config.ConfigInject;
 import org.embulk.config.ConfigDefault;
@@ -24,6 +25,14 @@ public interface MapReduceExecutorTask
     @ConfigDefault("\"/tmp/embulk\"")
     public String getStatePath();
 
+    @Config("reducers")
+    @ConfigDefault("null")
+    public Optional<Integer> getReducers();
+
+    @Config("partition")
+    @ConfigDefault("null")
+    public Optional<ConfigSource> getPartition();
+
     @ConfigInject
     public ModelManager getModelManager();
 
@@ -32,4 +41,10 @@ public interface MapReduceExecutorTask
 
     public ProcessTask getProcessTask();
     public void setProcessTask(ProcessTask task);
+
+    public Optional<String> getPartitioningType();
+    public void setPartitioningType(Optional<String> partitioningType);
+
+    public Optional<TaskSource> getPartitioningTask();
+    public void setPartitioningTask(Optional<TaskSource> partitioningTask);
 }

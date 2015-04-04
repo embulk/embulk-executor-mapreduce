@@ -13,19 +13,21 @@ import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.io.IntWritable;
-import org.apache.hadoop.io.Text;
+import org.apache.hadoop.io.NullWritable;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.mapreduce.JobContext;
 import org.apache.hadoop.mapreduce.TaskAttemptID;
 import org.apache.hadoop.mapreduce.Mapper;
 import org.apache.hadoop.mapreduce.Reducer;
+import org.apache.hadoop.mapreduce.TaskAttemptContext;
 import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 import org.embulk.config.ModelManager;
 import org.embulk.config.ConfigSource;
 import org.embulk.config.ConfigLoader;
 import org.embulk.config.CommitReport;
+import org.embulk.spi.BufferAllocator;
 import org.embulk.spi.Exec;
 import org.embulk.spi.ExecAction;
 import org.embulk.spi.ExecSession;
@@ -55,12 +57,12 @@ public class EmbulkMapReduce
         }
     }
 
-    public static void setTaskCount(Configuration config, int taskCount)
+    public static void setMapTaskCoun(Configuration config, int taskCount)
     {
         config.setInt(CK_TASK_COUNT, taskCount);
     }
 
-    public static int getTaskCount(Configuration config)
+    public static int getMapTaskCount(Configuration config)
     {
         return config.getInt(CK_TASK_COUNT, 0);
     }
@@ -126,41 +128,78 @@ public class EmbulkMapReduce
         }
     }
 
-    public static class EmbulkMapper
-            extends Mapper<IntWritable, Text, Text, Text>
+    public static class SessionRunner
     {
-        private Context context;
-        private Injector injector;
-        private ModelManager modelManager;
-        private MapReduceExecutorTask task;
-        private ExecSession session;
+        private final Injector injector;
+        private final ModelManager modelManager;
+        private final MapReduceExecutorTask task;
+        private final ExecSession session;
 
-        public void setup(Context context)
+        public SessionRunner(TaskAttemptContext context)
         {
-            this.context = context;
             this.injector = newEmbulkInstance(context.getConfiguration());
             this.modelManager = injector.getInstance(ModelManager.class);
             this.task = getExecutorTask(injector, context.getConfiguration());
             this.session = new ExecSession(injector, task.getExecConfig());
         }
 
-        public void map(IntWritable key, Text value, final Context context) throws IOException, InterruptedException
+        public ModelManager getModelManager()
         {
-            final int taskIndex = key.get();
+            return modelManager;
+        }
 
+        public BufferAllocator getBufferAllocator()
+        {
+            return injector.getInstance(BufferAllocator.class);
+        }
+
+        public MapReduceExecutorTask getMapReduceExecutorTask()
+        {
+            return task;
+        }
+
+        public ExecSession getExecSession()
+        {
+            return session;
+        }
+
+        public <T> void execSession(ExecAction<T> action)
+        {
             try {
-                Exec.doWith(session, new ExecAction<Void>() {
-                    public Void run() throws Exception
-                    {
-                        process(context, taskIndex);
-                        return null;
-                    }
-                });
+                return Exec.doWith(session, action);
             } catch (ExecutionException e) {
                 Throwables.propagateIfInstanceOf(e.getCause(), IOException.class);
                 Throwables.propagateIfInstanceOf(e.getCause(), InterruptedException.class);
                 throw Throwables.propagate(e.getCause());
             }
+        }
+    }
+
+    public static class EmbulkMapper
+            extends Mapper<IntWritable, NullWritable, NullWritable, NullWritable>
+    {
+        private Context context;
+        private SessionRunner runner;
+
+        @Override
+        public void setup(Context context)
+        {
+            this.context = context;
+            this.runner = new SessionRunner(context);
+        }
+
+        @Override
+        public void map(IntWritable key, NullWritable value, final Context context) throws IOException, InterruptedException
+        {
+            final int taskIndex = key.get();
+
+            runner.execSession(new ExecAction<Void>() {
+                public Void run() throws Exception
+                {
+                    process(context, taskIndex);
+                    return null;
+                }
+            });
         }
 
         private void process(final Context context, int taskIndex) throws IOException, InterruptedException
@@ -168,9 +207,12 @@ public class EmbulkMapReduce
             final Configuration config = context.getConfiguration();
             final Path stateDir = getStateDirectoryPath(config);
             final AttemptState state = new AttemptState(context.getTaskAttemptID(), taskIndex);
+            final ModelManager modelManager = runner.getModelManager();
+
+            ProcessTask task = runner.getMapReduceExecutorTask().getProcessTask();
 
             try {
-                Executors.process(session, task.getProcessTask(), taskIndex, new Executors.ProcessStateCallback()
+                Executors.process(runner.getExecSession(), task.getProcessTask(), taskIndex, new Executors.ProcessStateCallback()
                 {
                     public void started()
                     {
@@ -220,11 +262,12 @@ public class EmbulkMapReduce
     }
 
     public static class EmbulkReducer
-            extends Reducer<Text, Text, Text, Text>
+            extends Reducer<NullWritable, NullWritable, NullWritable, NullWritable>
     {
         private IntWritable result = new IntWritable();
 
-        public void reduce(Text key, Iterable<Text> values, Context context)
+        @Override
+        public void reduce(NullWritable key, Iterable<NullWritable> values, Context context)
                 throws IOException, InterruptedException
         {
             // do nothing

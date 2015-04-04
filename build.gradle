@@ -29,8 +29,8 @@ subprojects {
     }
 
     dependencies {
-        compile  'org.embulk:embulk-core:0.5.3'
-        provided 'org.embulk:embulk-core:0.5.3'
+        compile  'org.embulk:embulk-core:0.5.4'
+        provided 'org.embulk:embulk-core:0.5.4'
         compile 'org.apache.hadoop:hadoop-client:2.6.0'
         testCompile 'junit:junit:4.+'
     }

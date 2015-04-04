@@ -1,19 +1,18 @@
 package org.embulk.executor.mapreduce;
 
 import org.apache.hadoop.io.IntWritable;
-import org.apache.hadoop.io.Text;
+import org.apache.hadoop.io.NullWritable;
 import org.apache.hadoop.mapreduce.InputSplit;
 import org.apache.hadoop.mapreduce.TaskAttemptContext;
 import org.apache.hadoop.mapreduce.RecordReader;
 
 public class EmbulkRecordReader
-        extends RecordReader<IntWritable, Text>
+        extends RecordReader<IntWritable, NullWritable>
 {
     private final int[] taskIndexes;
     private int offset;
 
     private final IntWritable currentKey = new IntWritable();
-    private final Text currentValue = new Text();
 
     public EmbulkRecordReader(EmbulkInputSplit split)
     {
@@ -52,9 +51,9 @@ public class EmbulkRecordReader
     }
 
     @Override
-    public Text getCurrentValue()
+    public NullWritable getCurrentValue()
     {
-        return currentValue;
+        return NullWritable.get();
     }
 
     @Override
