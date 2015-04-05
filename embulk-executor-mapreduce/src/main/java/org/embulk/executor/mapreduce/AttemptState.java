@@ -27,39 +27,44 @@ import org.embulk.config.CommitReport;
 public class AttemptState
 {
     private final TaskAttemptID attemptId;
-    private final int taskIndex;
+    private final Optional<Integer> inputTaskIndex;
+    private final Optional<Integer> outputTaskIndex;
     private Optional<String> exception;
     private Optional<CommitReport> inputCommitReport;
     private Optional<CommitReport> outputCommitReport;
 
-    public AttemptState(TaskAttemptID attemptId, int taskIndex)
+    public AttemptState(TaskAttemptID attemptId, Optional<Integer> inputTaskIndex, Optional<Integer> outputTaskIndex)
     {
         this.attemptId = attemptId;
-        this.taskIndex = taskIndex;
+        this.inputTaskIndex = inputTaskIndex;
+        this.outputTaskIndex = outputTaskIndex;
     }
 
     @JsonCreator
     AttemptState(
             @JsonProperty("attempt") String attemptId,
-            @JsonProperty("taskIndex") int taskIndex,
+            @JsonProperty("inputTaskIndex") Optional<Integer> inputTaskIndex,
+            @JsonProperty("outputTaskIndex") Optional<Integer> outputTaskIndex,
             @JsonProperty("exception") Optional<String> exception,
             @JsonProperty("inputCommitReport") Optional<CommitReport> inputCommitReport,
             @JsonProperty("outputCommitReport") Optional<CommitReport> outputCommitReport)
     {
         this(TaskAttemptID.forName(attemptId),
-                taskIndex, exception,
+                inputTaskIndex, outputTaskIndex, exception,
                 inputCommitReport, outputCommitReport);
     }
 
     public AttemptState(
             TaskAttemptID attemptId,
-            int taskIndex,
+            Optional<Integer> inputTaskIndex,
+            Optional<Integer> outputTaskIndex,
             Optional<String> exception,
             Optional<CommitReport> inputCommitReport,
             Optional<CommitReport> outputCommitReport)
     {
         this.attemptId = attemptId;
-        this.taskIndex = taskIndex;
+        this.inputTaskIndex = inputTaskIndex;
+        this.outputTaskIndex = outputTaskIndex;
         this.exception = exception;
         this.inputCommitReport = inputCommitReport;
         this.outputCommitReport = outputCommitReport;
@@ -77,10 +82,16 @@ public class AttemptState
         return attemptId.toString();
     }
 
-    @JsonProperty("taskIndex")
-    public int getTaskIndex()
+    @JsonProperty("inputTaskIndex")
+    public Optional<Integer> getInputTaskIndex()
     {
-        return taskIndex;
+        return inputTaskIndex;
+    }
+
+    @JsonProperty("outputTaskIndex")
+    public Optional<Integer> getOutputTaskIndex()
+    {
+        return outputTaskIndex;
     }
 
     @JsonIgnore

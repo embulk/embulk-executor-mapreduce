@@ -1,9 +1,18 @@
 package org.embulk.executor.mapreduce;
 
-import static java.nio.charset.StandardCharsets.UTF_8;
+import java.io.IOException;
+import java.io.DataOutput;
+import java.io.DataInput;
+import java.util.List;
+import java.util.ArrayList;
+import org.apache.hadoop.io.Writable;
+import org.apache.hadoop.io.WritableUtils;
+import org.embulk.spi.Buffer;
 import org.embulk.spi.Page;
+import static java.nio.charset.StandardCharsets.UTF_8;
 
 public class PageWritable
+        implements Writable
 {
     private Page page;
 
@@ -16,7 +25,7 @@ public class PageWritable
 
     public Page get()
     {
-        return Page;
+        return page;
     }
 
     @Override
@@ -24,7 +33,7 @@ public class PageWritable
     {
         Buffer buffer = page.buffer();
         out.writeInt(buffer.limit());
-        out.write(buffer.get(), buffer.offset(), buffer.limit());
+        out.write(buffer.array(), buffer.offset(), buffer.limit());
 
         List<String> stringReferences = page.getStringReferences();
         WritableUtils.writeVInt(out, stringReferences.size());
@@ -37,8 +46,8 @@ public class PageWritable
     public void readFields(DataInput in) throws IOException
     {
         int bufferSize = in.readInt();
-        byte[] bytes = new byte[size];  // TODO usa buffer allocator?
-        in.readFully(bytes, 0, size);
+        byte[] bytes = new byte[bufferSize];  // TODO usa buffer allocator?
+        in.readFully(bytes, 0, bufferSize);
         Buffer buffer = Buffer.wrap(bytes);
 
         int stringCount = WritableUtils.readVInt(in);
@@ -47,6 +56,11 @@ public class PageWritable
             strings.add(in.readUTF());
         }
 
-        return Page.wrap(buffer).setStringReferences(strings);
+        Page newPage = Page.wrap(buffer);
+        newPage.setStringReferences(strings);
+        if (page != null) {
+            page.release();
+        }
+        page = newPage;
     }
 }

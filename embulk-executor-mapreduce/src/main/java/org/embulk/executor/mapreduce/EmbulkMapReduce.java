@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.io.IOException;
 import com.google.inject.Injector;
+import com.google.common.base.Optional;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.fasterxml.jackson.core.JsonFactory;
@@ -21,8 +22,6 @@ import org.apache.hadoop.mapreduce.TaskAttemptID;
 import org.apache.hadoop.mapreduce.Mapper;
 import org.apache.hadoop.mapreduce.Reducer;
 import org.apache.hadoop.mapreduce.TaskAttemptContext;
-import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
-import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 import org.embulk.config.ModelManager;
 import org.embulk.config.ConfigSource;
 import org.embulk.config.ConfigLoader;
@@ -31,6 +30,7 @@ import org.embulk.spi.BufferAllocator;
 import org.embulk.spi.Exec;
 import org.embulk.spi.ExecAction;
 import org.embulk.spi.ExecSession;
+import org.embulk.spi.ProcessTask;
 import org.embulk.spi.util.Executors;
 import org.embulk.EmbulkService;
 
@@ -57,7 +57,7 @@ public class EmbulkMapReduce
         }
     }
 
-    public static void setMapTaskCoun(Configuration config, int taskCount)
+    public static void setMapTaskCount(Configuration config, int taskCount)
     {
         config.setInt(CK_TASK_COUNT, taskCount);
     }
@@ -130,6 +130,7 @@ public class EmbulkMapReduce
 
     public static class SessionRunner
     {
+        private final Configuration config;
         private final Injector injector;
         private final ModelManager modelManager;
         private final MapReduceExecutorTask task;
@@ -137,10 +138,16 @@ public class EmbulkMapReduce
 
         public SessionRunner(TaskAttemptContext context)
         {
+            this.config = context.getConfiguration();
             this.injector = newEmbulkInstance(context.getConfiguration());
             this.modelManager = injector.getInstance(ModelManager.class);
             this.task = getExecutorTask(injector, context.getConfiguration());
             this.session = new ExecSession(injector, task.getExecConfig());
+        }
+
+        public Configuration getConfiguration()
+        {
+            return config;
         }
 
         public ModelManager getModelManager()
@@ -163,7 +170,7 @@ public class EmbulkMapReduce
             return session;
         }
 
-        public <T> void execSession(ExecAction<T> action)
+        public <T> T execSession(ExecAction<T> action) throws IOException, InterruptedException
         {
             try {
                 return Exec.doWith(session, action);
@@ -172,6 +179,61 @@ public class EmbulkMapReduce
                 Throwables.propagateIfInstanceOf(e.getCause(), InterruptedException.class);
                 throw Throwables.propagate(e.getCause());
             }
+        }
+    }
+
+    public static class AttemptStateUpdateHandler
+            implements Executors.ProcessStateCallback
+    {
+        private final Configuration config;
+        private final Path stateDir;
+        private final ModelManager modelManager;
+        private final AttemptState state;
+
+        public AttemptStateUpdateHandler(SessionRunner runner, AttemptState state)
+        {
+            this.config = runner.getConfiguration();
+            this.stateDir = getStateDirectoryPath(config);
+            this.state = state;
+            this.modelManager = runner.getModelManager();
+        }
+
+        @Override
+        public void started()
+        {
+            try {
+                writeAttemptStateFile(config, stateDir, state, modelManager);
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+        }
+
+        @Override
+        public void inputCommitted(CommitReport report)
+        {
+            state.setInputCommitReport(report);
+            try {
+                writeAttemptStateFile(config, stateDir, state, modelManager);
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+        }
+
+        @Override
+        public void outputCommitted(CommitReport report)
+        {
+            state.setOutputCommitReport(report);
+            try {
+                writeAttemptStateFile(config, stateDir, state, modelManager);
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+        }
+
+        public void setException(Throwable ex) throws IOException
+        {
+            state.setException(ex);
+            writeAttemptStateFile(config, stateDir, state, modelManager);
         }
     }
 
@@ -204,52 +266,16 @@ public class EmbulkMapReduce
 
         private void process(final Context context, int taskIndex) throws IOException, InterruptedException
         {
-            final Configuration config = context.getConfiguration();
-            final Path stateDir = getStateDirectoryPath(config);
-            final AttemptState state = new AttemptState(context.getTaskAttemptID(), taskIndex);
-            final ModelManager modelManager = runner.getModelManager();
-
             ProcessTask task = runner.getMapReduceExecutorTask().getProcessTask();
 
+            AttemptStateUpdateHandler handler = new AttemptStateUpdateHandler(runner,
+                    new AttemptState(context.getTaskAttemptID(), Optional.of(taskIndex), Optional.of(taskIndex)));
+
             try {
-                Executors.process(runner.getExecSession(), task.getProcessTask(), taskIndex, new Executors.ProcessStateCallback()
-                {
-                    public void started()
-                    {
-                        try {
-                            writeAttemptStateFile(config, stateDir, state, modelManager);
-                        } catch (IOException e) {
-                            throw new RuntimeException(e);
-                        }
-                    }
-
-                    public void inputCommitted(CommitReport report)
-                    {
-                        state.setInputCommitReport(report);
-                        try {
-                            writeAttemptStateFile(config, stateDir, state, modelManager);
-                        } catch (IOException e) {
-                            throw new RuntimeException(e);
-                        }
-                    }
-
-                    public void outputCommitted(CommitReport report)
-                    {
-                        state.setOutputCommitReport(report);
-                        try {
-                            writeAttemptStateFile(config, stateDir, state, modelManager);
-                        } catch (IOException e) {
-                            throw new RuntimeException(e);
-                        }
-                    }
-
-                    public void finished()
-                    { }
-                });
+                Executors.process(runner.getExecSession(), task, taskIndex, handler);
             } catch (Throwable ex) {
                 try {
-                    state.setException(ex);
-                    writeAttemptStateFile(config, stateDir, state, modelManager);
+                    handler.setException(ex);
                 } catch (Throwable e) {
                     e.addSuppressed(ex);
                     throw e;

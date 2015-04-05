@@ -7,6 +7,7 @@ import org.embulk.config.ConfigInject;
 import org.embulk.config.ConfigDefault;
 import org.embulk.config.ConfigSource;
 import org.embulk.config.Task;
+import org.embulk.config.TaskSource;
 import org.embulk.config.ModelManager;
 import org.embulk.spi.ProcessTask;
 
@@ -29,9 +30,9 @@ public interface MapReduceExecutorTask
     @ConfigDefault("null")
     public Optional<Integer> getReducers();
 
-    @Config("partition")
+    @Config("partitioning")
     @ConfigDefault("null")
-    public Optional<ConfigSource> getPartition();
+    public Optional<ConfigSource> getPartitioning();
 
     @ConfigInject
     public ModelManager getModelManager();

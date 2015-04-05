@@ -24,14 +24,15 @@ import org.apache.hadoop.mapreduce.TaskCompletionEvent;
 import org.apache.hadoop.mapreduce.lib.output.NullOutputFormat;
 import org.embulk.exec.ForSystemConfig;
 import org.embulk.config.ConfigSource;
+import org.embulk.config.ConfigException;
 import org.embulk.config.TaskSource;
 import org.embulk.config.ModelManager;
 import org.embulk.spi.Exec;
 import org.embulk.spi.ExecSession;
 import org.embulk.spi.ExecutorPlugin;
-import org.embulk.spi.ExecutorPlugin;
 import org.embulk.spi.ProcessTask;
 import org.embulk.spi.ProcessState;
+import org.embulk.spi.TaskState;
 import org.embulk.spi.Schema;
 import org.embulk.spi.time.Timestamp;
 
@@ -60,26 +61,29 @@ public class MapReduceExecutor
         final MapReduceExecutorTask task = config.loadConfig(MapReduceExecutorTask.class);
         task.setExecConfig(config);
 
+        final int outputTaskCount;
         final int reduceTaskCount;
 
-        if (task.getPartition().isPresent()) {
+        if (task.getPartitioning().isPresent()) {
             reduceTaskCount = task.getReducers().or(inputTaskCount);
             if (reduceTaskCount <= 0) {
                 throw new ConfigException("Reducers must be larger than 1 if partition: is set");
             }
-            ConfigSource partitionConfig = task.getPartition().get();
-            String partitioningType = partitionConfig.get(String.class, "type");
+            outputTaskCount = reduceTaskCount;
+            ConfigSource partitioningConfig = task.getPartitioning().get();
+            String partitioningType = partitioningConfig.get(String.class, "type");
             Partitioning partitioning = newPartitioning(partitioningType);
-            TaskSource partitioningTask = partitioning.configure(partitionConfig, outputSchema, reduceTaskCount);
-            task.setPartitioningType(partitioningType);
+            TaskSource partitioningTask = partitioning.configure(partitioningConfig, outputSchema, reduceTaskCount);
+            task.setPartitioningType(Optional.of(partitioningType));
             task.setPartitioningTask(Optional.of(partitioningTask));
         } else {
             reduceTaskCount = 0;
-            task.setPartitioningType(Optional<String>.absent());
-            task.setPartitioningTask(Optional<TaskSource>.absent());
+            outputTaskCount = inputTaskCount;
+            task.setPartitioningType(Optional.<String>absent());
+            task.setPartitioningTask(Optional.<TaskSource>absent());
         }
 
-        control.transaction(new ExecutorPlugin.Executor() {
+        control.transaction(outputSchema, outputTaskCount, new ExecutorPlugin.Executor() {
             public void execute(ProcessTask procTask, ProcessState state)
             {
                 task.setProcessTask(procTask);
@@ -97,13 +101,12 @@ public class MapReduceExecutor
         switch (type) {
         case "timestamp":
             return new TimestampPartitioning();
-            break;
         default:
-            throw new ConfigException("Unknown partition type '"+type;"'");
+            throw new ConfigException("Unknown partition type '"+type+"'");
         }
     }
 
-    void run(MapReduceExecutorTask task, boolean usePartitioning,
+    void run(MapReduceExecutorTask task,
             int mapTaskCount, int reduceTaskCount, ProcessState state)
     {
         ModelManager modelManager = task.getModelManager();
@@ -129,6 +132,13 @@ public class MapReduceExecutor
         EmbulkMapReduce.setMapTaskCount(job.getConfiguration(), mapTaskCount);  // used by EmbulkInputFormat
         EmbulkMapReduce.setStateDirectoryPath(job.getConfiguration(), stateDir);
 
+        // create state dir
+        try {
+            stateDir.getFileSystem(job.getConfiguration()).mkdirs(stateDir);
+        } catch (IOException ex) {
+            throw new RuntimeException(ex);
+        }
+
         job.setInputFormatClass(EmbulkInputFormat.class);
 
         if (reduceTaskCount > 0) {
@@ -138,7 +148,7 @@ public class MapReduceExecutor
 
             job.setReducerClass(EmbulkPartitioningMapReduce.EmbulkPartitioningReducer.class);
 
-            conf.setNumReduceTasks(reduceTaskCount);
+            job.setNumReduceTasks(reduceTaskCount);
 
         } else {
             job.setMapperClass(EmbulkMapReduce.EmbulkMapper.class);
@@ -147,7 +157,7 @@ public class MapReduceExecutor
 
             job.setReducerClass(EmbulkMapReduce.EmbulkReducer.class);
 
-            conf.setNumReduceTasks(0);
+            job.setNumReduceTasks(0);
         }
 
         job.setOutputFormatClass(NullOutputFormat.class);
@@ -158,7 +168,7 @@ public class MapReduceExecutor
             job.submit();
 
             int interval = Job.getCompletionPollInterval(job.getConfiguration());
-            while (job.isComplete()) {
+            while (!job.isComplete()) {
                 //if (job.getState() == JobStatus.State.PREP) {
                 //    continue;
                 //}
@@ -194,63 +204,66 @@ public class MapReduceExecutor
     private void updateProcessState(Job job, int mapTaskCount, Path stateDir,
             ProcessState state, ModelManager modelManager) throws IOException
     {
-        AttemptReport[] lastAttemptReports = new AttemptReport[mapTaskCount];
-
         List<AttemptReport> reports = getAttemptReports(job.getConfiguration(), stateDir, modelManager);
-        for (AttemptReport report : reports) {
-            if (!report.isStarted()) {
-                continue;
-            }
-            int taskIndex = report.getTaskIndex();
-            if (report.isOutputCommitted() || lastAttemptReports[taskIndex] == null) {
-                lastAttemptReports[taskIndex] = report;
-            } else if (!lastAttemptReports[taskIndex].isOutputCommitted() || !lastAttemptReports[taskIndex].isFailed()) {
-                lastAttemptReports[taskIndex] = report;
-            }
-        }
 
-        for (AttemptReport report : lastAttemptReports) {
+        for (AttemptReport report : reports) {
             if (report == null) {
                 continue;
             }
-            int taskIndex = report.getTaskIndex();
-            if (report.isStarted()) {
-                state.start(taskIndex);
+            if (!report.isStarted()) {
+                continue;
             }
-            if (report.isFinished()) {
-                state.finish(taskIndex);
+            AttemptState attempt = report.getAttemptState();
+            if (attempt.getInputTaskIndex().isPresent()) {
+                updateState(state.getInputTaskState(attempt.getInputTaskIndex().get()), attempt, true);
             }
-            if (report.isInputCommitted()) {
-                state.setInputCommitReport(taskIndex, report.getState().getInputCommitReport().get());
+            if (attempt.getOutputTaskIndex().isPresent()) {
+                updateState(state.getOutputTaskState(attempt.getOutputTaskIndex().get()), attempt, false);
             }
-            if (report.isOutputCommitted()) {
-                state.setOutputCommitReport(taskIndex, report.getState().getOutputCommitReport().get());
+        }
+    }
+
+    private static void updateState(TaskState state, AttemptState attempt, boolean isInput)
+    {
+        state.start();
+        if (attempt.getException().isPresent()) {
+            if (!state.isCommitted()) {
+                state.setException(new RemoteTaskFailedException(attempt.getException().get()));
             }
-            if (report.isFailed()) {
-                state.setException(taskIndex, new RemoteTaskFailedException(report.getState().getException().get()));
-            }
+        } else if (
+                (isInput && attempt.getInputCommitReport().isPresent()) ||
+                (!isInput && attempt.getOutputCommitReport().isPresent())) {
+            state.resetException();
+        }
+        if (isInput && attempt.getInputCommitReport().isPresent()) {
+            state.setCommitReport(attempt.getInputCommitReport().get());
+            state.finish();
+        }
+        if (!isInput && attempt.getOutputCommitReport().isPresent()) {
+            state.setCommitReport(attempt.getOutputCommitReport().get());
+            state.finish();
         }
     }
 
     private static class AttemptReport
     {
         private final TaskAttemptID attemptId;
-        private final AttemptState state;
+        private final AttemptState attemptState;
 
-        public AttemptReport(TaskAttemptID attemptId, AttemptState state)
+        public AttemptReport(TaskAttemptID attemptId)
         {
-            this.attemptId = attemptId;
-            this.state = state;
+            this(attemptId, null);
         }
 
-        public boolean isMapTask()
+        public AttemptReport(TaskAttemptID attemptId, AttemptState attemptState)
         {
-            return attemptId.getTaskID().getTaskType() == TaskType.MAP;
+            this.attemptId = attemptId;
+            this.attemptState = attemptState;
         }
 
         public boolean isStarted()
         {
-            return state != null;
+            return attemptState != null;
         }
 
         public boolean isFinished()
@@ -260,27 +273,22 @@ public class MapReduceExecutor
 
         public boolean isFailed()
         {
-            return isStarted() && state.getException().isPresent();
+            return isStarted() && attemptState.getException().isPresent();
         }
 
         public boolean isInputCommitted()
         {
-            return state != null && state.getInputCommitReport().isPresent();
+            return attemptState != null && attemptState.getInputCommitReport().isPresent();
         }
 
         public boolean isOutputCommitted()
         {
-            return state != null && state.getOutputCommitReport().isPresent();
+            return attemptState != null && attemptState.getOutputCommitReport().isPresent();
         }
 
-        public int getTaskIndex()
+        public AttemptState getAttemptState()
         {
-            return state.getTaskIndex();
-        }
-
-        public AttemptState getState()
-        {
-            return state;
+            return attemptState;
         }
     }
 

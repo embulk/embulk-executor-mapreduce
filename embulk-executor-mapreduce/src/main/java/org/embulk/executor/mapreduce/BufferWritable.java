@@ -1,8 +1,15 @@
 package org.embulk.executor.mapreduce;
 
+import java.io.IOException;
+import java.io.DataOutput;
+import java.io.DataInput;
+import org.apache.hadoop.io.WritableComparable;
+import org.apache.hadoop.io.WritableUtils;
+import org.apache.hadoop.io.WritableComparator;
 import org.embulk.spi.Buffer;
 
 public class BufferWritable
+        implements WritableComparable<BufferWritable>
 {
     private Buffer buffer;
 
@@ -22,7 +29,7 @@ public class BufferWritable
     public void write(DataOutput out) throws IOException
     {
         WritableUtils.writeVInt(out, buffer.limit());
-        out.write(buffer.get(), buffer.offset(), buffer.limit());
+        out.write(buffer.array(), buffer.offset(), buffer.limit());
     }
 
     @Override
@@ -31,7 +38,19 @@ public class BufferWritable
         int size = WritableUtils.readVInt(in);
         byte[] bytes = new byte[size];  // TODO usa buffer allocator?
         in.readFully(bytes, 0, size);
-        return Buffer.wrap(bytes);
+        Buffer newBuffer = Buffer.wrap(bytes);
+        if (buffer != null) {
+            buffer.release();
+        }
+        buffer = newBuffer;
+    }
+
+    @Override
+    public int compareTo(BufferWritable o)
+    {
+        return WritableComparator.compareBytes(
+                buffer.array(), buffer.offset(), buffer.limit(),
+                o.buffer.array(), o.buffer.offset(), o.buffer.limit());
     }
 
     @Override

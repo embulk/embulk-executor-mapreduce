@@ -1,5 +1,6 @@
 package org.embulk.executor.mapreduce;
 
+import org.embulk.config.ConfigSource;
 import org.embulk.config.TaskSource;
 import org.embulk.spi.Schema;
 
