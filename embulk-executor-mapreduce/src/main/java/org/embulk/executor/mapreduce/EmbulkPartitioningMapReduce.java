@@ -139,71 +139,85 @@ public class EmbulkPartitioningMapReduce
     {
         private Context context;
         private SessionRunner runner;
+        private AttemptStateUpdateHandler handler;
+        private TransactionalPageOutput output;
+        private boolean failed = false;
 
         @Override
-        public void setup(Context context)
+        public void setup(final Context context) throws IOException, InterruptedException
         {
+            System.out.println("reducer setup: "+context.getTaskAttemptID());
             this.context = context;
             this.runner = new SessionRunner(context);
+
+            runner.execSession(new ExecAction<Void>() {
+                public Void run() throws Exception
+                {
+                    int taskIndex = context.getTaskAttemptID().getTaskID().getId();
+
+                    ProcessTask task = runner.getMapReduceExecutorTask().getProcessTask();
+                    ExecSession exec = runner.getExecSession();
+                    OutputPlugin outputPlugin = exec.newPlugin(OutputPlugin.class, task.getOutputPluginType());
+
+                    handler = new AttemptStateUpdateHandler(runner,
+                            new AttemptState(context.getTaskAttemptID(), Optional.<Integer>absent(), Optional.of(taskIndex)));
+
+                    output = outputPlugin.open(task.getOutputTaskSource(), task.getExecutorSchema(), taskIndex);
+
+                    handler.started();
+
+                    return null;
+                }
+            });
         }
 
         @Override
         public void reduce(BufferWritable key, final Iterable<PageWritable> values, final Context context)
                 throws IOException, InterruptedException
         {
-            final int taskIndex = context.getTaskAttemptID().getTaskID().getId();
-
             runner.execSession(new ExecAction<Void>() {
                 public Void run() throws Exception
                 {
-                    process(context, taskIndex, values);
+                    process(context, values);
                     return null;
                 }
             });
         }
 
-        private void process(final Context context, int taskIndex, Iterable<PageWritable> values) throws IOException, InterruptedException
+        private void process(final Context context, Iterable<PageWritable> values) throws IOException, InterruptedException
         {
-            ProcessTask task = runner.getMapReduceExecutorTask().getProcessTask();
-            ExecSession exec = runner.getExecSession();
-
-            // input reads pages from the Context
-            final Iterator<PageWritable> iterator = values.iterator();
-            InputPlugin inputPlugin = new ReducerInputPlugin(new ReducerInputPlugin.Input() {
-                public Page poll()
-                {
-                    if (iterator.hasNext()) {
-                        return iterator.next().get();
-                    }
-                    return null;
-                }
-            });
-
-            // filter doesn't run at reducer
-
-            // output runs at reducer
-            OutputPlugin outputPlugin = exec.newPlugin(OutputPlugin.class, task.getOutputPluginType());
-
-            AttemptStateUpdateHandler handler = new AttemptStateUpdateHandler(runner,
-                    new AttemptState(context.getTaskAttemptID(), Optional.<Integer>absent(), Optional.of(taskIndex)));
-
             try {
-                Executors.process(exec, taskIndex,
-                    inputPlugin, task.getInputSchema(), task.getInputTaskSource(),
-                    ImmutableList.<FilterPlugin>of(), ImmutableList.<Schema>of(), ImmutableList.<TaskSource>of(),
-                    outputPlugin, task.getExecutorSchema(), task.getOutputTaskSource(),
-                    handler);
+                for (PageWritable value : values) {
+                    output.add(value.get());
+                }
             } catch (Throwable ex) {
+                failed = true;
                 try {
                     handler.setException(ex);
                 } catch (Throwable e) {
                     e.addSuppressed(ex);
                     throw e;
                 }
-                //if (task.getTaskRecovery()) {
-                //    throw ex;
-                //}
             }
+        }
+
+        protected void cleanup(Context context) throws IOException, InterruptedException
+        {
+            runner.execSession(new ExecAction<Void>() {
+                public Void run() throws Exception
+                {
+                    try {
+                        if (!failed) {
+                            output.finish();
+                            CommitReport report = output.commit();
+                            handler.outputCommitted(report);
+                        }
+                    } finally {
+                        output.close();
+                    }
+                    return null;
+                }
+            });
         }
     }
 
@@ -283,66 +297,6 @@ public class EmbulkPartitioningMapReduce
                     return Exec.newCommitReport();
                 }
             };
-        }
-    }
-
-    private static class ReducerInputPlugin
-            implements InputPlugin
-    {
-        public static interface Input
-        {
-            public Page poll();
-        }
-
-        private final Input input;
-
-        public ReducerInputPlugin(Input input)
-        {
-            this.input = input;
-        }
-
-        public ConfigDiff transaction(ConfigSource config,
-                InputPlugin.Control control)
-        {
-            // won't be called
-            throw new RuntimeException("");
-        }
-
-        public ConfigDiff resume(TaskSource taskSource,
-                Schema schema, int taskCount,
-                InputPlugin.Control control)
-        {
-            // won't be called
-            throw new RuntimeException("");
-        }
-
-        public void cleanup(TaskSource taskSource,
-                Schema schema, int taskCount,
-                List<CommitReport> successCommitReports)
-        {
-            // won't be called
-            throw new RuntimeException("");
-        }
-
-        public ConfigDiff guess(ConfigSource config)
-        {
-            // won't be called
-            throw new RuntimeException("");
-        }
-
-        public CommitReport run(TaskSource taskSource,
-                Schema schema, int taskIndex,
-                PageOutput output)
-        {
-            while (true) {
-                Page page = input.poll();
-                if (page == null) {
-                    break;
-                }
-                output.add(page);
-            }
-            output.finish();
-            return Exec.newCommitReport();
         }
     }
 }
