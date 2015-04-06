@@ -1,7 +1,9 @@
 package org.embulk.executor.mapreduce;
 
 import java.util.List;
+import java.util.ArrayList;
 import java.util.concurrent.ExecutionException;
+import java.io.File;
 import java.io.IOException;
 import com.google.inject.Injector;
 import com.google.common.base.Optional;
@@ -9,10 +11,12 @@ import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.jruby.embed.ScriptingContainer;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FSDataOutputStream;
+import org.apache.hadoop.fs.LocalDirAllocator;
 import org.apache.hadoop.io.IntWritable;
 import org.apache.hadoop.io.NullWritable;
 import org.apache.hadoop.conf.Configuration;
@@ -22,6 +26,7 @@ import org.apache.hadoop.mapreduce.TaskAttemptID;
 import org.apache.hadoop.mapreduce.Mapper;
 import org.apache.hadoop.mapreduce.Reducer;
 import org.apache.hadoop.mapreduce.TaskAttemptContext;
+import org.apache.hadoop.mapreduce.MRConfig;
 import org.embulk.config.ModelManager;
 import org.embulk.config.ConfigSource;
 import org.embulk.config.ConfigLoader;
@@ -40,6 +45,8 @@ public class EmbulkMapReduce
     private static final String CK_STATE_DIRECTORY_PATH = "embulk.mapreduce.stateDirectorypath";
     private static final String CK_TASK_COUNT = "embulk.mapreduce.taskCount";
     private static final String CK_TASK = "embulk.mapreduce.task";
+    private static final String CK_PLUGIN_ARCHIVE_SPECS = "embulk.mapreduce.pluginArchive.specs";
+    private static final String PLUGIN_ARCHIVE_FILE_NAME = "gems.zip";
 
     public static void setSystemConfig(Configuration config, ModelManager modelManager, ConfigSource systemConfig)
     {
@@ -100,14 +107,38 @@ public class EmbulkMapReduce
         FileStatus[] stats = stateDir.getFileSystem(config).listStatus(stateDir);
         ImmutableList.Builder<TaskAttemptID> builder = ImmutableList.builder();
         for (FileStatus stat : stats) {
-            String name = stat.getPath().getName();
-            try {
-                builder.add(TaskAttemptID.forName(name));
-            } catch (IllegalArgumentException ex) {
-                // ignore
+            if (stat.getPath().getName().startsWith("attempt_") && stat.isFile()) {
+                String name = stat.getPath().getName();
+                try {
+                    builder.add(TaskAttemptID.forName(name));
+                } catch (IllegalArgumentException ex) {
+                    // ignore
+                }
             }
         }
         return builder.build();
+    }
+
+    public static PluginArchive readPluginArchive(File localDirectory, Configuration config,
+            Path stateDir, ModelManager modelManager) throws IOException
+    {
+        List<PluginArchive.GemSpec> specs = modelManager.readObject(
+                new ArrayList<PluginArchive.GemSpec>() {}.getClass(),
+                config.get(CK_PLUGIN_ARCHIVE_SPECS));
+        Path path = new Path(stateDir, PLUGIN_ARCHIVE_FILE_NAME);
+        try (FSDataInputStream in = path.getFileSystem(config).open(path)) {
+            return PluginArchive.load(localDirectory, specs, in);
+        }
+    }
+
+    public static void writePluginArchive(Configuration config, Path stateDir,
+            PluginArchive archive, ModelManager modelManager) throws IOException
+    {
+        Path path = new Path(stateDir, PLUGIN_ARCHIVE_FILE_NAME);
+        try (FSDataOutputStream out = path.getFileSystem(config).create(path, true)) {
+            List<PluginArchive.GemSpec> specs = archive.dump(out);
+            config.set(CK_PLUGIN_ARCHIVE_SPECS, modelManager.writeObject(specs));
+        }
     }
 
     public static AttemptState readAttemptStateFile(Configuration config,
@@ -135,6 +166,7 @@ public class EmbulkMapReduce
         private final ModelManager modelManager;
         private final MapReduceExecutorTask task;
         private final ExecSession session;
+        private final File localGemPath;
 
         public SessionRunner(TaskAttemptContext context)
         {
@@ -143,6 +175,20 @@ public class EmbulkMapReduce
             this.modelManager = injector.getInstance(ModelManager.class);
             this.task = getExecutorTask(injector, context.getConfiguration());
             this.session = new ExecSession(injector, task.getExecConfig());
+
+            try {
+                LocalDirAllocator localDirAllocator = new LocalDirAllocator(MRConfig.LOCAL_DIR);
+                Path destPath = localDirAllocator.getLocalPathForWrite("gems", config);
+                this.localGemPath = new File(destPath.toString());
+            } catch (IOException ex) {
+                throw new RuntimeException(ex);
+            }
+        }
+
+        public PluginArchive readPluginArchive() throws IOException
+        {
+            localGemPath.mkdirs();
+            return EmbulkMapReduce.readPluginArchive(localGemPath, config, getStateDirectoryPath(config), modelManager);
         }
 
         public Configuration getConfiguration()
@@ -158,6 +204,11 @@ public class EmbulkMapReduce
         public BufferAllocator getBufferAllocator()
         {
             return injector.getInstance(BufferAllocator.class);
+        }
+
+        public ScriptingContainer getScriptingContainer()
+        {
+            return injector.getInstance(ScriptingContainer.class);
         }
 
         public MapReduceExecutorTask getMapReduceExecutorTask()
@@ -179,6 +230,11 @@ public class EmbulkMapReduce
                 Throwables.propagateIfInstanceOf(e.getCause(), InterruptedException.class);
                 throw Throwables.propagate(e.getCause());
             }
+        }
+
+        public void deleteTempFiles()
+        {
+            // TODO delete localGemPath
         }
     }
 
@@ -244,10 +300,11 @@ public class EmbulkMapReduce
         private SessionRunner runner;
 
         @Override
-        public void setup(Context context)
+        public void setup(Context context) throws IOException
         {
             this.context = context;
             this.runner = new SessionRunner(context);
+            runner.readPluginArchive().restoreLoadPaths(runner.getScriptingContainer());
         }
 
         @Override

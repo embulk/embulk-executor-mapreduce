@@ -1,8 +1,14 @@
 package org.embulk.executor.mapreduce;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.HashSet;
+import java.io.File;
 import java.io.IOException;
 import java.io.EOFException;
+import java.net.URL;
+import java.net.URLClassLoader;
 import org.slf4j.Logger;
 import org.joda.time.format.DateTimeFormat;
 import com.google.inject.Inject;
@@ -10,6 +16,8 @@ import com.google.common.base.Optional;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterators;
+import org.jruby.embed.ScriptingContainer;
+import org.apache.hadoop.util.StringUtils;
 import org.apache.hadoop.io.IntWritable;
 import org.apache.hadoop.io.NullWritable;
 import org.apache.hadoop.fs.Path;
@@ -36,22 +44,19 @@ import org.embulk.spi.TaskState;
 import org.embulk.spi.Schema;
 import org.embulk.spi.time.Timestamp;
 
-import java.util.Map;
-import java.lang.reflect.Field;
-import java.util.ServiceLoader;
-import org.apache.hadoop.mapreduce.protocol.ClientProtocolProvider;
-import org.apache.hadoop.fs.FileSystem;
-
 public class MapReduceExecutor
         implements ExecutorPlugin
 {
     private final Logger log = Exec.getLogger(MapReduceExecutor.class);
     private final ConfigSource systemConfig;
+    private final ScriptingContainer jruby;
 
     @Inject
-    public MapReduceExecutor(@ForSystemConfig ConfigSource systemConfig)
+    public MapReduceExecutor(@ForSystemConfig ConfigSource systemConfig,
+            ScriptingContainer jruby)
     {
         this.systemConfig = systemConfig;
+        this.jruby = jruby;
     }
 
     @Override
@@ -127,6 +132,13 @@ public class MapReduceExecutor
             throw Throwables.propagate(e);
         }
         job.setJobName(task.getJobName());
+
+        // extra config
+        for (Map.Entry<String, String> pair : task.getConfig().entrySet()) {
+            job.getConfiguration().set(pair.getKey(), pair.getValue());
+        }
+
+        // framework config
         EmbulkMapReduce.setSystemConfig(job.getConfiguration(), modelManager, systemConfig);
         EmbulkMapReduce.setExecutorTask(job.getConfiguration(), modelManager, task);
         EmbulkMapReduce.setMapTaskCount(job.getConfiguration(), mapTaskCount);  // used by EmbulkInputFormat
@@ -138,6 +150,20 @@ public class MapReduceExecutor
         } catch (IOException ex) {
             throw new RuntimeException(ex);
         }
+
+        // archive plugins
+        PluginArchive archive = new PluginArchive.Builder()
+            .addLoadedRubyGems(jruby)
+            .build();
+        try {
+            EmbulkMapReduce.writePluginArchive(job.getConfiguration(), stateDir, archive, modelManager);
+        } catch (IOException ex) {
+            throw new RuntimeException(ex);
+        }
+
+        // jar files
+        Iterable<String> jars = collectJars(task.getLibjars());
+        job.getConfiguration().set("tmpjars", StringUtils.join(",", jars));
 
         job.setInputFormatClass(EmbulkInputFormat.class);
 
@@ -190,6 +216,37 @@ public class MapReduceExecutor
         } catch (IOException | InterruptedException | ClassNotFoundException e) {
             throw Throwables.propagate(e);
         }
+    }
+
+    private static Iterable<String> collectJars(List<String> extraJars)
+    {
+        Set<String> set = new HashSet<String>();
+
+        ClassLoader cl1 = Exec.class.getClassLoader();
+        if (cl1 instanceof URLClassLoader) {
+            for (URL url : ((URLClassLoader) cl1).getURLs()) {
+                if (new File(url.getPath()).isFile()) {
+                    // TODO log if not found
+                    // TODO debug logging
+                    set.add(url.getPath());
+                }
+            }
+        }
+
+        ClassLoader cl2 = MapReduceExecutor.class.getClassLoader();
+        if (cl2 instanceof URLClassLoader) {
+            for (URL url : ((URLClassLoader) cl2).getURLs()) {
+                if (new File(url.getPath()).isFile()) {
+                    // TODO log if not found
+                    // TODO debug logging
+                    set.add(url.getPath());
+                }
+            }
+        }
+
+        set.addAll(extraJars);
+
+        return set;
     }
 
     private static String getTransactionUniqueName(ExecSession session)
@@ -293,23 +350,6 @@ public class MapReduceExecutor
     }
 
     private static final int TASK_EVENT_FETCH_SIZE = 100;
-
-    private static List<TaskCompletionEvent> getTaskCompletionEvents(Job job) throws IOException
-    {
-        ImmutableList.Builder<TaskCompletionEvent> builder = ImmutableList.builder();
-        while (true) {
-            try {
-                TaskCompletionEvent[] events = job.getTaskCompletionEvents(0, TASK_EVENT_FETCH_SIZE);
-                builder.addAll(Iterators.forArray(events));
-                if (events.length < TASK_EVENT_FETCH_SIZE) {
-                    break;
-                }
-            } catch (InterruptedException ex) {
-                throw new IOException(ex);
-            }
-        }
-        return builder.build();
-    }
 
     private static List<AttemptReport> getAttemptReports(Configuration config,
             Path stateDir, ModelManager modelManager) throws IOException

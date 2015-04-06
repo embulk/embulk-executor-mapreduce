@@ -1,6 +1,7 @@
 package org.embulk.executor.mapreduce;
 
 import java.util.List;
+import java.util.Map;
 import com.google.common.base.Optional;
 import org.embulk.config.Config;
 import org.embulk.config.ConfigInject;
@@ -21,6 +22,14 @@ public interface MapReduceExecutorTask
     @Config("config_files")
     @ConfigDefault("[]")
     public List<String> getConfigFiles();
+
+    @Config("config")
+    @ConfigDefault("{}")
+    public Map<String, String> getConfig();
+
+    @Config("libjars")
+    @ConfigDefault("[]")
+    public List<String> getLibjars();
 
     @Config("state_path")
     @ConfigDefault("\"/tmp/embulk\"")
