@@ -1,6 +1,7 @@
 # Hadoop MapReduce executor plugin for Embulk
 
 `embulk-executor-embulk` runs bulk load tasks of Embulk on Hadoop, a distributed computing environment.
+
 This executor plugin can partition data by a column before passing the data to output plugins. This enables you to partition files by day, hour or other factors before loading them to a storage.
 
 ## Configuration
@@ -12,9 +13,10 @@ This executor plugin can partition data by a column before passing the data to o
 - **libjars** additional jar files to run the MapReduce application (array of strings, default: `[]`)
 - **state_path** a directory path on the default filesystem (usually HDFS) to store temporary progress report files (string, default: `"/tmp/embulk"`)
 - **partitioning** partitioning strategy. see below (hash, default: no partitioning)
-    = **type: timestamp** it supports only `timestamp` partitioning for now.
+    - **type: timestamp** only `timestamp` is supported for partitioning type for now.
     - **column** name of a timestamp or long column used for partitioning. (string, required)
     - **unit** "hour" or "day" (enum, required)
+    - **timezone: UTC** only "UTC" is supported for now.
     - **unix_timestamp_unit** unit of the unix timestamp if type of the column is long. "sec", "milli" (for milliseconds), "micro" (for micorseconds), or "nano" (for nanoseconds). (enum, default: `"sec"`)
 
 
@@ -71,7 +73,7 @@ exec:
     partitioning:
         type: timestamp
         unit: hour
-        column: column
+        column: updated_at
         unix_timestamp_unit: milli
     reducers: 3
 in:
