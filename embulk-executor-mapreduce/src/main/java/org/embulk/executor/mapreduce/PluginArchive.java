@@ -1,6 +1,7 @@
 package org.embulk.executor.mapreduce;
 
 import java.util.List;
+import java.util.ArrayList;
 import java.io.File;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -103,14 +104,17 @@ public class PluginArchive
         this.localGems = localGems;
     }
 
+    @SuppressWarnings("unchecked")
     public void restoreLoadPaths(ScriptingContainer jruby)
     {
+        List<String> loadPaths = (List<String>) jruby.runScriptlet("$LOAD_PATH");
         for (LocalGem localGem : localGems) {
             Path localGemPath = localGem.getLocalPath().toPath();
             for (String requirePath : localGem.getRequirePaths()) {
-                jruby.getLoadPaths().add(localGemPath.resolve(requirePath).toString());
+                loadPaths.add(localGemPath.resolve(requirePath).toString());
             }
         }
+        jruby.setLoadPaths(loadPaths);
     }
 
     public List<GemSpec> dump(OutputStream out)
