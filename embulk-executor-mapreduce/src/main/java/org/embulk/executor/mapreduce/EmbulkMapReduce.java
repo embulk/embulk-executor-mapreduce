@@ -304,7 +304,7 @@ public class EmbulkMapReduce
         {
             this.context = context;
             this.runner = new SessionRunner(context);
-            runner.readPluginArchive().restoreLoadPaths(runner.getScriptingContainer());
+            runner.readPluginArchive().restoreLoadPathsTo(runner.getScriptingContainer());
         }
 
         @Override

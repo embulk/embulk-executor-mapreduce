@@ -49,7 +49,7 @@ public class EmbulkPartitioningMapReduce
         {
             this.context = context;
             this.runner = new SessionRunner(context);
-            runner.readPluginArchive().restoreLoadPaths(runner.getScriptingContainer());
+            runner.readPluginArchive().restoreLoadPathsTo(runner.getScriptingContainer());
         }
 
         @Override
@@ -149,7 +149,7 @@ public class EmbulkPartitioningMapReduce
         {
             this.context = context;
             this.runner = new SessionRunner(context);
-            runner.readPluginArchive().restoreLoadPaths(runner.getScriptingContainer());
+            runner.readPluginArchive().restoreLoadPathsTo(runner.getScriptingContainer());
 
             runner.execSession(new ExecAction<Void>() {
                 public Void run() throws Exception

@@ -18,12 +18,6 @@ import org.apache.hadoop.mapreduce.TaskAttemptID;
 import org.embulk.config.ModelManager;
 import org.embulk.config.CommitReport;
 
-// ProcessState.start := state file exists
-// ProcessState.finish := attempt is done at hadoop
-// ProcessState.setException := read from state file
-// ProcessState.setInputCommitReport := read from state file
-// ProcessState.setOutputCommitReport := read from state file
-
 public class AttemptState
 {
     private final TaskAttemptID attemptId;

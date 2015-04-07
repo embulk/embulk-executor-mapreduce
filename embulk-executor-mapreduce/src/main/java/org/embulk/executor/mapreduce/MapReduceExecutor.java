@@ -355,16 +355,6 @@ public class MapReduceExecutor
             return attemptState != null;
         }
 
-        public boolean isFinished()
-        {
-            return true;  // TODO true if attempt is done
-        }
-
-        public boolean isFailed()
-        {
-            return isStarted() && attemptState.getException().isPresent();
-        }
-
         public boolean isInputCommitted()
         {
             return attemptState != null && attemptState.getInputCommitReport().isPresent();

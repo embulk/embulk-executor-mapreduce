@@ -105,7 +105,7 @@ public class PluginArchive
     }
 
     @SuppressWarnings("unchecked")
-    public void restoreLoadPaths(ScriptingContainer jruby)
+    public void restoreLoadPathsTo(ScriptingContainer jruby)
     {
         List<String> loadPaths = (List<String>) jruby.runScriptlet("$LOAD_PATH");
         for (LocalGem localGem : localGems) {
