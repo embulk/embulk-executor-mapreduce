@@ -7,8 +7,11 @@ import java.util.HashSet;
 import java.io.File;
 import java.io.IOException;
 import java.io.EOFException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.net.URL;
 import java.net.URLClassLoader;
+import java.net.MalformedURLException;
 import org.slf4j.Logger;
 import org.joda.time.format.DateTimeFormat;
 import com.google.inject.Inject;
@@ -21,6 +24,7 @@ import org.apache.hadoop.util.StringUtils;
 import org.apache.hadoop.io.IntWritable;
 import org.apache.hadoop.io.NullWritable;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.fs.FsConstants;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.mapreduce.JobContext;
 import org.apache.hadoop.mapreduce.Cluster;
@@ -29,6 +33,7 @@ import org.apache.hadoop.mapreduce.Counters;
 import org.apache.hadoop.mapreduce.TaskType;
 import org.apache.hadoop.mapreduce.TaskAttemptID;
 import org.apache.hadoop.mapreduce.TaskCompletionEvent;
+import org.apache.hadoop.mapreduce.MRJobConfig;
 import org.apache.hadoop.mapreduce.lib.output.NullOutputFormat;
 import org.embulk.exec.ForSystemConfig;
 import org.embulk.config.ConfigSource;
@@ -117,8 +122,18 @@ public class MapReduceExecutor
         ModelManager modelManager = task.getModelManager();
 
         Configuration conf = new Configuration();
+        // don't call conf.setQuietMode(false). Configuraiton has invalid resource names by default
         for (String path : task.getConfigFiles()) {
-            conf.addResource(path);
+            File file = new File(path);
+            if (!file.isFile()) {
+                throw new ConfigException(String.format("Config file '%s' does not exist", file));
+            }
+            try {
+                // use URL here. Configuration assumes String is a path of a resource in a ClassLoader
+                conf.addResource(file.toURI().toURL());
+            } catch (MalformedURLException ex) {
+                throw new RuntimeException(ex);
+            }
         }
 
         String uniqueTransactionName = getTransactionUniqueName(Exec.session());
@@ -126,12 +141,15 @@ public class MapReduceExecutor
 
         Job job;
         try {
-            //job = Job.getInstance(conf);
-            job = Job.getInstance();
+            job = Job.getInstance(conf);
         } catch (IOException e) {
             throw Throwables.propagate(e);
         }
         job.setJobName(task.getJobName());
+
+        // create a dedicated classloader for this yarn application.
+        // allow task.getConfig to overwrite this parameter
+        job.getConfiguration().set(MRConfig.MAPREDUCE_JOB_CLASSLOADER_SYSTEM_CLASSES, "java.,org.apache.hadoop.");
 
         // extra config
         for (Map.Entry<String, String> pair : task.getConfig().entrySet()) {
@@ -162,7 +180,7 @@ public class MapReduceExecutor
         }
 
         // jar files
-        Iterable<String> jars = collectJars(task.getLibjars());
+        Iterable<Path> jars = collectJars(task.getLibjars());
         job.getConfiguration().set("tmpjars", StringUtils.join(",", jars));
 
         job.setInputFormatClass(EmbulkInputFormat.class);
@@ -218,35 +236,48 @@ public class MapReduceExecutor
         }
     }
 
-    private static Iterable<String> collectJars(List<String> extraJars)
+    private static Iterable<Path> collectJars(List<String> extraJars)
     {
-        Set<String> set = new HashSet<String>();
+        Set<Path> set = new HashSet<Path>();
 
-        ClassLoader cl1 = Exec.class.getClassLoader();
-        if (cl1 instanceof URLClassLoader) {
-            for (URL url : ((URLClassLoader) cl1).getURLs()) {
-                if (new File(url.getPath()).isFile()) {
-                    // TODO log if not found
-                    // TODO debug logging
-                    set.add(url.getPath());
-                }
+        collectURLClassLoaderJars(set, Exec.class.getClassLoader());
+        collectURLClassLoaderJars(set, MapReduceExecutor.class.getClassLoader());
+
+        for (String extraJar : extraJars) {
+            URI uri;
+            try {
+                uri = new URI(extraJar);
+            } catch (URISyntaxException ex) {
+                throw new ConfigException(String.format("Invalid jar path '%s'", extraJar), ex);
+            }
+            if (uri.getScheme() == null) {
+                set.add(localFileToLocalPath(new File(extraJar)));
+            } else {
+                set.add(new Path(uri));
             }
         }
-
-        ClassLoader cl2 = MapReduceExecutor.class.getClassLoader();
-        if (cl2 instanceof URLClassLoader) {
-            for (URL url : ((URLClassLoader) cl2).getURLs()) {
-                if (new File(url.getPath()).isFile()) {
-                    // TODO log if not found
-                    // TODO debug logging
-                    set.add(url.getPath());
-                }
-            }
-        }
-
-        set.addAll(extraJars);
 
         return set;
+    }
+
+    private static void collectURLClassLoaderJars(Set<Path> set, ClassLoader cl)
+    {
+        if (cl instanceof URLClassLoader) {
+            for (URL url : ((URLClassLoader) cl).getURLs()) {
+                File file = new File(url.getPath());
+                if (file.isFile()) {
+                    // TODO log if not found
+                    // TODO debug logging
+                    set.add(localFileToLocalPath(file));
+                }
+            }
+        }
+    }
+
+    private static Path localFileToLocalPath(File file)
+    {
+        Path cwd = new Path(java.nio.file.Paths.get("").toAbsolutePath().toString()).makeQualified(FsConstants.LOCAL_FS_URI, new Path("/"));
+        return new Path(file.toString()).makeQualified(FsConstants.LOCAL_FS_URI, cwd);
     }
 
     private static String getTransactionUniqueName(ExecSession session)

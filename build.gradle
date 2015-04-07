@@ -26,6 +26,9 @@ subprojects {
 
     configurations {
         provided
+        // exclude xercesImpl and xml-apis jars that causes a problem with javax.xml.parsers.DocumentBuilderFactory.
+        // JVM includes javax.xml API and implementations by default.
+        compile.exclude group: 'xerces'
     }
 
     dependencies {
