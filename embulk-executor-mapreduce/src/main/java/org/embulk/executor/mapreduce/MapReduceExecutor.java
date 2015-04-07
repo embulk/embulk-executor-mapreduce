@@ -149,7 +149,7 @@ public class MapReduceExecutor
 
         // create a dedicated classloader for this yarn application.
         // allow task.getConfig to overwrite this parameter
-        job.getConfiguration().set(MRConfig.MAPREDUCE_JOB_CLASSLOADER_SYSTEM_CLASSES, "java.,org.apache.hadoop.");
+        job.getConfiguration().set(MRJobConfig.MAPREDUCE_JOB_CLASSLOADER_SYSTEM_CLASSES, "java.,org.apache.hadoop.");
 
         // extra config
         for (Map.Entry<String, String> pair : task.getConfig().entrySet()) {
