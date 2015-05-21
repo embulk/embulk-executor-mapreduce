@@ -44,10 +44,10 @@ exec:
         - /etc/hadoop/conf/hdfs-site.xml
         - /etc/hadoop/conf/mapred-site.xml
     config:
-        - fs.defaultFS: "hdfs://my-hdfs.example.net:8020"
-        - yarn.resourcemanager.hostname: "my-yarn.example.net"
-        - dfs.replication: 1
-        - mapreduce.client.submit.file.replication: 1
+        fs.defaultFS: "hdfs://my-hdfs.example.net:8020"
+        yarn.resourcemanager.hostname: "my-yarn.example.net"
+        dfs.replication: 1
+        mapreduce.client.submit.file.replication: 1
     state_path: embulk/
 in:
    ...
@@ -65,10 +65,10 @@ exec:
         - /etc/hadoop/conf/hdfs-site.xml
         - /etc/hadoop/conf/mapred-site.xml
     config:
-        - fs.defaultFS: "hdfs://my-hdfs.example.net:8020"
-        - yarn.resourcemanager.hostname: "my-yarn.example.net"
-        - dfs.replication: 1
-        - mapreduce.client.submit.file.replication: 1
+        fs.defaultFS: "hdfs://my-hdfs.example.net:8020"
+        yarn.resourcemanager.hostname: "my-yarn.example.net"
+        dfs.replication: 1
+        mapreduce.client.submit.file.replication: 1
     state_path: embulk/
     partitioning:
         type: timestamp
