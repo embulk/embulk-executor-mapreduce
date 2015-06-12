@@ -1,5 +1,6 @@
 package org.embulk.executor.mapreduce;
 
+import java.io.EOFException;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.concurrent.ExecutionException;
@@ -145,8 +146,13 @@ public class EmbulkMapReduce
             Path stateDir, TaskAttemptID id, ModelManager modelManager) throws IOException
     {
         Path path = new Path(stateDir, id.toString());
-        try (FSDataInputStream in = path.getFileSystem(config).open(path)) {
-            return AttemptState.readFrom(in, modelManager);
+
+        try (FSDataInputStream in = path.getFileSystem(config).open(path)) { // throw IOException
+            return AttemptState.readFrom(in, modelManager); // throw EOFException
+        } catch (EOFException e) {
+            throw e;
+        } catch (IOException e) {
+            throw new EOFException("Cannot open the attempt state file.");
         }
     }
 
