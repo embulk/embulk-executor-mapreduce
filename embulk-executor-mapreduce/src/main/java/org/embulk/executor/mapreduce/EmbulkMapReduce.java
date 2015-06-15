@@ -1,5 +1,6 @@
 package org.embulk.executor.mapreduce;
 
+import java.io.EOFException;
 import java.io.InterruptedIOException;
 import java.util.List;
 import java.util.ArrayList;
@@ -148,23 +149,26 @@ public class EmbulkMapReduce
     }
 
     public static AttemptState readAttemptStateFile(final Configuration config,
-            Path stateDir, TaskAttemptID id, ModelManager modelManager) throws IOException
+            Path stateDir, TaskAttemptID id, final ModelManager modelManager) throws IOException
     {
         final Logger log = Exec.getLogger(EmbulkMapReduce.class);
         final Path path = new Path(stateDir, id.toString());
-        try (FSDataInputStream in = retryExecutor()
+        try {
+            return retryExecutor()
                     .withRetryLimit(10)
                     .withInitialRetryWait(3000)
                     .withMaxRetryWait(60 * 1000)
-                    .runInterruptible(new Retryable<FSDataInputStream>() {
+                    .runInterruptible(new Retryable<AttemptState>() {
                         @Override
-                        public FSDataInputStream call() throws IOException {
-                            return path.getFileSystem(config).open(path);
+                        public AttemptState call() throws IOException {
+                            try (FSDataInputStream in = path.getFileSystem(config).open(path)) {
+                                return AttemptState.readFrom(in, modelManager);
+                            }
                         }
 
                         @Override
                         public boolean isRetryableException(Exception exception) {
-                            return true;
+                            return !(exception instanceof EOFException);
                         }
 
                         @Override
@@ -177,8 +181,7 @@ public class EmbulkMapReduce
                         public void onGiveup(Exception firstException, Exception lastException)
                                 throws RetryGiveupException {
                         }
-                    })) {
-            return AttemptState.readFrom(in, modelManager);
+                    });
         } catch (RetryGiveupException e) {
             Throwables.propagateIfInstanceOf(e.getCause(), IOException.class);
             throw Throwables.propagate(e.getCause());
@@ -191,6 +194,7 @@ public class EmbulkMapReduce
             Path stateDir, AttemptState state, ModelManager modelManager) throws IOException
     {
         Path path = new Path(stateDir, state.getAttemptId().toString());
+        // TODO retry file create and write
         try (FSDataOutputStream out = path.getFileSystem(config).create(path, true)) {
             state.writeTo(out, modelManager);
         }
