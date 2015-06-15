@@ -1,5 +1,7 @@
 package org.embulk.executor.mapreduce;
 
+import java.io.EOFException;
+import java.io.InterruptedIOException;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.concurrent.ExecutionException;
@@ -37,7 +39,12 @@ import org.embulk.spi.ExecAction;
 import org.embulk.spi.ExecSession;
 import org.embulk.spi.ProcessTask;
 import org.embulk.spi.util.Executors;
+import org.embulk.spi.util.RetryExecutor.Retryable;
+import org.embulk.spi.util.RetryExecutor.RetryGiveupException;
 import org.embulk.EmbulkService;
+import org.slf4j.Logger;
+
+import static org.embulk.spi.util.RetryExecutor.retryExecutor;
 
 public class EmbulkMapReduce
 {
@@ -141,12 +148,47 @@ public class EmbulkMapReduce
         }
     }
 
-    public static AttemptState readAttemptStateFile(Configuration config,
-            Path stateDir, TaskAttemptID id, ModelManager modelManager) throws IOException
+    public static AttemptState readAttemptStateFile(final Configuration config,
+            Path stateDir, TaskAttemptID id, final ModelManager modelManager) throws IOException
     {
-        Path path = new Path(stateDir, id.toString());
-        try (FSDataInputStream in = path.getFileSystem(config).open(path)) {
-            return AttemptState.readFrom(in, modelManager);
+        final Logger log = Exec.getLogger(EmbulkMapReduce.class);
+        final Path path = new Path(stateDir, id.toString());
+        try {
+            return retryExecutor()
+                    .withRetryLimit(10)
+                    .withInitialRetryWait(3000)
+                    .withMaxRetryWait(60 * 1000)
+                    .runInterruptible(new Retryable<AttemptState>() {
+                        @Override
+                        public AttemptState call() throws IOException {
+                            try (FSDataInputStream in = path.getFileSystem(config).open(path)) {
+                                return AttemptState.readFrom(in, modelManager);
+                            }
+                        }
+
+                        @Override
+                        public boolean isRetryableException(Exception exception) {
+                            // EOFException should not be retried because it's not temporal error
+                            // instead. getAttemptReports() handles it.
+                            return !(exception instanceof EOFException);
+                        }
+
+                        @Override
+                        public void onRetry(Exception exception, int retryCount, int retryLimit, int retryWait)
+                                throws RetryGiveupException {
+                            log.warn("Retrying opening state file " + path.getName() + " error: " + exception);
+                        }
+
+                        @Override
+                        public void onGiveup(Exception firstException, Exception lastException)
+                                throws RetryGiveupException {
+                        }
+                    });
+        } catch (RetryGiveupException e) {
+            Throwables.propagateIfInstanceOf(e.getCause(), IOException.class);
+            throw Throwables.propagate(e.getCause());
+        } catch (InterruptedException e) {
+            throw new InterruptedIOException();
         }
     }
 
@@ -154,6 +196,7 @@ public class EmbulkMapReduce
             Path stateDir, AttemptState state, ModelManager modelManager) throws IOException
     {
         Path path = new Path(stateDir, state.getAttemptId().toString());
+        // TODO retry file create and write
         try (FSDataOutputStream out = path.getFileSystem(config).create(path, true)) {
             state.writeTo(out, modelManager);
         }
