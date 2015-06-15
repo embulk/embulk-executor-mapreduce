@@ -1,5 +1,6 @@
 package org.embulk.executor.mapreduce;
 
+import java.io.InterruptedIOException;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.concurrent.ExecutionException;
@@ -37,7 +38,12 @@ import org.embulk.spi.ExecAction;
 import org.embulk.spi.ExecSession;
 import org.embulk.spi.ProcessTask;
 import org.embulk.spi.util.Executors;
+import org.embulk.spi.util.RetryExecutor.Retryable;
+import org.embulk.spi.util.RetryExecutor.RetryGiveupException;
 import org.embulk.EmbulkService;
+import org.slf4j.Logger;
+
+import static org.embulk.spi.util.RetryExecutor.retryExecutor;
 
 public class EmbulkMapReduce
 {
@@ -95,8 +101,7 @@ public class EmbulkMapReduce
                 config.get(CK_TASK));
     }
 
-    public static Injector newEmbulkInstance(Configuration config)
-    {
+    public static Injector newEmbulkInstance(Configuration config) {
         ConfigSource systemConfig = getSystemConfig(config);
         return new EmbulkService(systemConfig).getInjector();
     }
@@ -141,12 +146,43 @@ public class EmbulkMapReduce
         }
     }
 
-    public static AttemptState readAttemptStateFile(Configuration config,
+    public static AttemptState readAttemptStateFile(final Configuration config,
             Path stateDir, TaskAttemptID id, ModelManager modelManager) throws IOException
     {
-        Path path = new Path(stateDir, id.toString());
-        try (FSDataInputStream in = path.getFileSystem(config).open(path)) {
+        final Logger log = Exec.getLogger(EmbulkMapReduce.class);
+        final Path path = new Path(stateDir, id.toString());
+        try (FSDataInputStream in = retryExecutor()
+                    .withRetryLimit(10)
+                    .withInitialRetryWait(3000)
+                    .withMaxRetryWait(60 * 1000)
+                    .runInterruptible(new Retryable<FSDataInputStream>() {
+                        @Override
+                        public FSDataInputStream call() throws IOException {
+                            return path.getFileSystem(config).open(path);
+                        }
+
+                        @Override
+                        public boolean isRetryableException(Exception exception) {
+                            return true;
+                        }
+
+                        @Override
+                        public void onRetry(Exception exception, int retryCount, int retryLimit, int retryWait)
+                                throws RetryGiveupException {
+                            log.warn("Retrying opening state file " + path.getName() + " error: " + exception);
+                        }
+
+                        @Override
+                        public void onGiveup(Exception firstException, Exception lastException)
+                                throws RetryGiveupException {
+                        }
+                    })) {
             return AttemptState.readFrom(in, modelManager);
+        } catch (RetryGiveupException e) {
+            Throwables.propagateIfInstanceOf(e.getCause(), IOException.class);
+            throw Throwables.propagate(e.getCause());
+        } catch (InterruptedException e) {
+            throw new InterruptedIOException();
         }
     }
 
