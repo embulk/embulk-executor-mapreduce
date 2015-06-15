@@ -101,7 +101,8 @@ public class EmbulkMapReduce
                 config.get(CK_TASK));
     }
 
-    public static Injector newEmbulkInstance(Configuration config) {
+    public static Injector newEmbulkInstance(Configuration config)
+    {
         ConfigSource systemConfig = getSystemConfig(config);
         return new EmbulkService(systemConfig).getInjector();
     }
