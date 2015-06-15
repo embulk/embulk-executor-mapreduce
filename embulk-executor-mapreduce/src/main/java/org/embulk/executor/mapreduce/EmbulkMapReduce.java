@@ -168,6 +168,8 @@ public class EmbulkMapReduce
 
                         @Override
                         public boolean isRetryableException(Exception exception) {
+                            // EOFException should not be retried because it's not temporal error
+                            // instead. getAttemptReports() handles it.
                             return !(exception instanceof EOFException);
                         }
 
