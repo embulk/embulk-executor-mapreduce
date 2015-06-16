@@ -155,9 +155,9 @@ public class EmbulkMapReduce
         final Path path = new Path(stateDir, id.toString());
         try {
             return retryExecutor()
-                    .withRetryLimit(10)
-                    .withInitialRetryWait(3000)
-                    .withMaxRetryWait(60 * 1000)
+                    .withRetryLimit(5)
+                    .withInitialRetryWait(2000) // 2 seconds
+                    .withMaxRetryWait(20000) // 20 seconds
                     .runInterruptible(new Retryable<AttemptState>() {
                         @Override
                         public AttemptState call() throws IOException {

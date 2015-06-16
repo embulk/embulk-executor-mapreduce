@@ -221,12 +221,12 @@ public class MapReduceExecutor
                             job.mapProgress() * 100, job.reduceProgress() * 100));
                 Thread.sleep(interval);
 
-                updateProcessState(job, mapTaskCount, stateDir, state, modelManager);
+                updateProcessState(job, mapTaskCount, stateDir, state, modelManager, true);
             }
 
             log.info(String.format("map %.1f%% reduce %.1f%%",
                         job.mapProgress() * 100, job.reduceProgress() * 100));
-            updateProcessState(job, mapTaskCount, stateDir, state, modelManager);
+            updateProcessState(job, mapTaskCount, stateDir, state, modelManager, false);
 
             Counters counters = job.getCounters();
             if (counters != null) {
@@ -291,9 +291,9 @@ public class MapReduceExecutor
     }
 
     private void updateProcessState(Job job, int mapTaskCount, Path stateDir,
-            ProcessState state, ModelManager modelManager) throws IOException
+            ProcessState state, ModelManager modelManager, boolean skipUpdate) throws IOException
     {
-        List<AttemptReport> reports = getAttemptReports(job.getConfiguration(), stateDir, modelManager);
+        List<AttemptReport> reports = getAttemptReports(job.getConfiguration(), stateDir, modelManager, skipUpdate);
 
         for (AttemptReport report : reports) {
             if (report == null) {
@@ -374,7 +374,7 @@ public class MapReduceExecutor
     private static final int TASK_EVENT_FETCH_SIZE = 100;
 
     private static List<AttemptReport> getAttemptReports(Configuration config,
-            Path stateDir, ModelManager modelManager) throws IOException
+            Path stateDir, ModelManager modelManager, boolean skipUpdate) throws IOException
     {
         ImmutableList.Builder<AttemptReport> builder = ImmutableList.builder();
         for (TaskAttemptID aid : EmbulkMapReduce.listAttempts(config, stateDir)) {
@@ -384,6 +384,12 @@ public class MapReduceExecutor
                 builder.add(new AttemptReport(aid, state));
             } catch (EOFException ex) {  // plus Not Found exception
                 builder.add(new AttemptReport(aid, null));
+            } catch (IOException ex) {
+                if (skipUpdate) {
+                    builder.add(new AttemptReport(aid, null));
+                } else {
+                    throw ex;
+                }
             }
         }
         return builder.build();
