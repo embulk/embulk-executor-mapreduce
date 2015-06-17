@@ -48,6 +48,7 @@ import org.embulk.spi.ProcessState;
 import org.embulk.spi.TaskState;
 import org.embulk.spi.Schema;
 import org.embulk.spi.time.Timestamp;
+import org.embulk.spi.util.RetryExecutor.RetryGiveupException;
 
 public class MapReduceExecutor
         implements ExecutorPlugin
@@ -384,11 +385,12 @@ public class MapReduceExecutor
                 builder.add(new AttemptReport(aid, state));
             } catch (EOFException ex) {  // plus Not Found exception
                 builder.add(new AttemptReport(aid, null));
-            } catch (IOException ex) {
+            } catch (RetryGiveupException ex) {
                 if (skipUpdate) {
                     builder.add(new AttemptReport(aid, null));
                 } else {
-                    throw ex;
+                    Throwables.propagateIfInstanceOf(ex.getCause(), IOException.class);
+                    throw Throwables.propagate(ex.getCause());
                 }
             }
         }

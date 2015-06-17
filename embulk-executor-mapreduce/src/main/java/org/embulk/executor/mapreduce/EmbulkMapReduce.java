@@ -149,7 +149,8 @@ public class EmbulkMapReduce
     }
 
     public static AttemptState readAttemptStateFile(final Configuration config,
-            Path stateDir, TaskAttemptID id, final ModelManager modelManager) throws IOException
+            Path stateDir, TaskAttemptID id, final ModelManager modelManager)
+            throws IOException, RetryGiveupException
     {
         final Logger log = Exec.getLogger(EmbulkMapReduce.class);
         final Path path = new Path(stateDir, id.toString());
@@ -185,8 +186,7 @@ public class EmbulkMapReduce
                         }
                     });
         } catch (RetryGiveupException e) {
-            Throwables.propagateIfInstanceOf(e.getCause(), IOException.class);
-            throw Throwables.propagate(e.getCause());
+            throw e;
         } catch (InterruptedException e) {
             throw new InterruptedIOException();
         }
