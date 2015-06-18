@@ -155,9 +155,9 @@ public class EmbulkMapReduce
         final Path path = new Path(stateDir, id.toString());
         try {
             return retryExecutor()
-                    .withRetryLimit(10)
-                    .withInitialRetryWait(3000)
-                    .withMaxRetryWait(60 * 1000)
+                    .withRetryLimit(5)
+                    .withInitialRetryWait(2000) // 2 seconds
+                    .withMaxRetryWait(20000) // 20 seconds
                     .runInterruptible(new Retryable<AttemptState>() {
                         @Override
                         public AttemptState call() throws IOException {
@@ -169,7 +169,7 @@ public class EmbulkMapReduce
                         @Override
                         public boolean isRetryableException(Exception exception) {
                             // EOFException should not be retried because it's not temporal error
-                            // instead. getAttemptReports() handles it.
+                            // instead. It is handled by caller.
                             return !(exception instanceof EOFException);
                         }
 
@@ -185,6 +185,8 @@ public class EmbulkMapReduce
                         }
                     });
         } catch (RetryGiveupException e) {
+            // If IOException causes the retry, it is thrown and should be handled by caller.
+            // Otherwise, RuntimeException is thrown.
             Throwables.propagateIfInstanceOf(e.getCause(), IOException.class);
             throw Throwables.propagate(e.getCause());
         } catch (InterruptedException e) {

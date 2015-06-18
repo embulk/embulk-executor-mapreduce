@@ -376,13 +376,17 @@ public class MapReduceExecutor
     private static List<AttemptReport> getAttemptReports(Configuration config,
             Path stateDir, ModelManager modelManager) throws IOException
     {
+        Logger log = Exec.getLogger(MapReduceExecutor.class);
         ImmutableList.Builder<AttemptReport> builder = ImmutableList.builder();
         for (TaskAttemptID aid : EmbulkMapReduce.listAttempts(config, stateDir)) {
             try {
                 AttemptState state = EmbulkMapReduce.readAttemptStateFile(config,
                         stateDir, aid, modelManager);
                 builder.add(new AttemptReport(aid, state));
-            } catch (EOFException ex) {  // plus Not Found exception
+            } catch (IOException ex) {  // plus Not Found exception
+                log.warn(ex.getMessage(), ex);
+                // returns AttemptReport that has null AttemptState if IOException is caught.
+                // The null AttemptState should be handled by caller.
                 builder.add(new AttemptReport(aid, null));
             }
         }
