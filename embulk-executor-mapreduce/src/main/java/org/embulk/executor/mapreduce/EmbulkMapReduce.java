@@ -169,7 +169,7 @@ public class EmbulkMapReduce
                         @Override
                         public boolean isRetryableException(Exception exception) {
                             // EOFException should not be retried because it's not temporal error
-                            // instead. getAttemptReports() handles it.
+                            // instead. It is handled by caller.
                             return !(exception instanceof EOFException);
                         }
 
@@ -185,6 +185,8 @@ public class EmbulkMapReduce
                         }
                     });
         } catch (RetryGiveupException e) {
+            // If IOException causes the retry, it is thrown and should be handled by caller.
+            // Otherwise, RuntimeException is thrown.
             Throwables.propagateIfInstanceOf(e.getCause(), IOException.class);
             throw Throwables.propagate(e.getCause());
         } catch (InterruptedException e) {
