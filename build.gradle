@@ -75,7 +75,7 @@ end
     }
 }
 
-//task gempush << {
-//    "gem push pkg/embulk-output-hdp2-${project.version}.gem".execute().waitFor()
-//    "gem push pkg/embulk-output-apache2-${project.version}.gem".execute().waitFor()
-//}
+task gemPush(type: JRubyExec, dependsOn: ["gem"]) {
+    jrubyArgs "-rrubygems/gem_runner", "-eGem::GemRunner.new.run(ARGV)", "push"
+    script "pkg/${project.name}-${project.version}.gem"
+}
