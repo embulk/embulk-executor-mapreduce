@@ -144,6 +144,7 @@ public class AttemptState
 
     public static AttemptState readFrom(InputStream in, ModelManager modelManager) throws IOException
     {
+        // If InputStream contains partial JSON (like '{"key":"va'), this method throws EOFException
         Scanner s = new Scanner(in, "UTF-8").useDelimiter("\\A");  // TODO
         if (s.hasNext()) {
             return modelManager.readObject(AttemptState.class, s.next());

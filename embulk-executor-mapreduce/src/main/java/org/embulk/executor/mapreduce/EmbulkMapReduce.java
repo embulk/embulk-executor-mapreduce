@@ -155,9 +155,9 @@ public class EmbulkMapReduce
         final Path path = new Path(stateDir, id.toString());
         try {
             return retryExecutor()
-                    .withRetryLimit(10)
-                    .withInitialRetryWait(3000)
-                    .withMaxRetryWait(60 * 1000)
+                    .withRetryLimit(5)
+                    .withInitialRetryWait(2 * 1000)
+                    .withMaxRetryWait(20 * 1000)
                     .runInterruptible(new Retryable<AttemptState>() {
                         @Override
                         public AttemptState call() throws IOException {
@@ -168,9 +168,14 @@ public class EmbulkMapReduce
 
                         @Override
                         public boolean isRetryableException(Exception exception) {
-                            // EOFException should not be retried because it's not temporal error
-                            // instead. getAttemptReports() handles it.
-                            return !(exception instanceof EOFException);
+                            // AttemptState.readFrom throws 2 types of exceptions:
+                            //   a) EOFException: race between readFrom and writeTo. See comments on AttemptState.readFrom.
+                            //   b) IOException "Cannot obtain block length for LocatedBlock": HDFS-1058. See https://github.com/embulk/embulk-executor-mapreduce/pull/3
+                            //   c) other IOException: FileSystem is not working
+                            //
+                            // a) and b) are temporary problem which is not critical. c) could be temporary problem and it is critical.
+                            // Here retries regardless of the exception type because we can't distinguish b) from c).
+                            return true;
                         }
 
                         @Override

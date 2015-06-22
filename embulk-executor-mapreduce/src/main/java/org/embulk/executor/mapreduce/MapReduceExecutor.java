@@ -221,12 +221,14 @@ public class MapReduceExecutor
                             job.mapProgress() * 100, job.reduceProgress() * 100));
                 Thread.sleep(interval);
 
-                updateProcessState(job, mapTaskCount, stateDir, state, modelManager);
+                updateProcessState(job, mapTaskCount, stateDir, state, modelManager, true);
             }
 
+            // Here sets skipUnavailable=false to updateProcessState method because race
+            // condition of AttemptReport.readFrom and .writeTo does not happen here.
             log.info(String.format("map %.1f%% reduce %.1f%%",
                         job.mapProgress() * 100, job.reduceProgress() * 100));
-            updateProcessState(job, mapTaskCount, stateDir, state, modelManager);
+            updateProcessState(job, mapTaskCount, stateDir, state, modelManager, false);
 
             Counters counters = job.getCounters();
             if (counters != null) {
@@ -291,7 +293,7 @@ public class MapReduceExecutor
     }
 
     private void updateProcessState(Job job, int mapTaskCount, Path stateDir,
-            ProcessState state, ModelManager modelManager) throws IOException
+            ProcessState state, ModelManager modelManager, boolean skipUnavailable) throws IOException
     {
         List<AttemptReport> reports = getAttemptReports(job.getConfiguration(), stateDir, modelManager);
 
@@ -299,8 +301,12 @@ public class MapReduceExecutor
             if (report == null) {
                 continue;
             }
-            if (!report.isStarted()) {
-                continue;
+            if (!report.isAvailable()) {
+                if (skipUnavailable) {
+                    continue;
+                } else {
+                    throw report.getUnavailableException();
+                }
             }
             AttemptState attempt = report.getAttemptState();
             if (attempt.getInputTaskIndex().isPresent()) {
@@ -338,21 +344,30 @@ public class MapReduceExecutor
     {
         private final TaskAttemptID attemptId;
         private final AttemptState attemptState;
-
-        public AttemptReport(TaskAttemptID attemptId)
-        {
-            this(attemptId, null);
-        }
+        private final IOException unavailableException;
 
         public AttemptReport(TaskAttemptID attemptId, AttemptState attemptState)
         {
             this.attemptId = attemptId;
             this.attemptState = attemptState;
+            this.unavailableException = null;
         }
 
-        public boolean isStarted()
+        public AttemptReport(TaskAttemptID attemptId, IOException unavailableException)
+        {
+            this.attemptId = attemptId;
+            this.attemptState = null;
+            this.unavailableException = unavailableException;
+        }
+
+        public boolean isAvailable()
         {
             return attemptState != null;
+        }
+
+        public IOException getUnavailableException()
+        {
+            return unavailableException;
         }
 
         public boolean isInputCommitted()
@@ -382,8 +397,12 @@ public class MapReduceExecutor
                 AttemptState state = EmbulkMapReduce.readAttemptStateFile(config,
                         stateDir, aid, modelManager);
                 builder.add(new AttemptReport(aid, state));
-            } catch (EOFException ex) {  // plus Not Found exception
-                builder.add(new AttemptReport(aid, null));
+            } catch (IOException ex) {
+                // Either of:
+                //   * race condition of AttemptReport.writeTo and .readFrom
+                //   * FileSystem is not working
+                // See also comments on MapReduceExecutor.readAttemptStateFile.isRetryableException.
+                builder.add(new AttemptReport(aid, ex));
             }
         }
         return builder.build();
