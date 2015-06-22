@@ -1,3 +1,10 @@
+Release 0.1.1 - 2015-06-22
+
+* Retry reading attempt state file if IOException happens on HDFS
+* Added a workaround for "Cannot obtain block length for LocatedBlock"
+  https://issues.apache.org/jira/browse/HDFS-1058
+
+
 Release 0.1.0 - 2015-04-07
 
 * The first release.
