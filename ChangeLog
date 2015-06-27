@@ -1,3 +1,8 @@
+Release 0.1.2 - 2015-06-27
+
+* Fixed a bug where long value becomes 0 or 1
+
+
 Release 0.1.1 - 2015-06-22
 
 * Retry reading attempt state file if IOException happens on HDFS
