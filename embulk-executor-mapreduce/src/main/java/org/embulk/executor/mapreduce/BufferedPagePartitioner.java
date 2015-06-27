@@ -49,7 +49,7 @@ public class BufferedPagePartitioner
             if (source.isNull(column)) {
                 destination.setNull(column);
             } else {
-                destination.setBoolean(column, source.getBoolean(column));
+                destination.setLong(column, source.getLong(column));
             }
         }
 
