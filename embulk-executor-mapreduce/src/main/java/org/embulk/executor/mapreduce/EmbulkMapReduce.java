@@ -1,14 +1,16 @@
 package org.embulk.executor.mapreduce;
 
-import java.io.EOFException;
-import java.io.InterruptedIOException;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.concurrent.ExecutionException;
 import java.io.File;
 import java.io.IOException;
+import java.io.EOFException;
+import java.io.InterruptedIOException;
+import java.lang.reflect.InvocationTargetException;
 import com.google.inject.Injector;
 import com.google.common.base.Optional;
+import com.google.common.base.Throwables;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.fasterxml.jackson.core.JsonFactory;
@@ -48,11 +50,14 @@ import static org.embulk.spi.util.RetryExecutor.retryExecutor;
 
 public class EmbulkMapReduce
 {
+    private static final String SYSTEM_CONFIG_SERVICE_CLASS = "mapreduce_service_class";
+
     private static final String CK_SYSTEM_CONFIG = "embulk.mapreduce.systemConfig";
     private static final String CK_STATE_DIRECTORY_PATH = "embulk.mapreduce.stateDirectorypath";
     private static final String CK_TASK_COUNT = "embulk.mapreduce.taskCount";
     private static final String CK_TASK = "embulk.mapreduce.task";
     private static final String CK_PLUGIN_ARCHIVE_SPECS = "embulk.mapreduce.pluginArchive.specs";
+
     private static final String PLUGIN_ARCHIVE_FILE_NAME = "gems.zip";
 
     public static void setSystemConfig(Configuration config, ModelManager modelManager, ConfigSource systemConfig)
@@ -105,7 +110,28 @@ public class EmbulkMapReduce
     public static Injector newEmbulkInstance(Configuration config)
     {
         ConfigSource systemConfig = getSystemConfig(config);
-        return new EmbulkService(systemConfig).getInjector();
+        String serviceClassName = systemConfig.get(String.class, SYSTEM_CONFIG_SERVICE_CLASS, "org.embulk.EmbulkService");
+
+        try {
+            Object obj;
+            if (serviceClassName.equals("org.embulk.EmbulkService")) {
+                obj = new EmbulkService(systemConfig);
+            } else {
+                Class<?> serviceClass = Class.forName(serviceClassName);
+                obj = serviceClass.getConstructor(ConfigSource.class).newInstance(config);
+            }
+
+            if (obj instanceof EmbulkService) {
+                return ((EmbulkService) obj).getInjector();
+            } else {
+                return (Injector) obj.getClass().getMethod("getInjector").invoke(obj);
+            }
+
+        } catch (InvocationTargetException ex) {
+            throw Throwables.propagate(ex.getCause());
+        } catch (ClassNotFoundException | NoSuchMethodException | InstantiationException | IllegalAccessException | IllegalArgumentException ex) {
+            throw Throwables.propagate(ex);
+        }
     }
 
     public static List<TaskAttemptID> listAttempts(Configuration config,
