@@ -226,14 +226,7 @@ public class MapReduceExecutor
         EmbulkMapReduce.setMapTaskCount(job.getConfiguration(), mapTaskCount);  // used by EmbulkInputFormat
         EmbulkMapReduce.setStateDirectoryPath(job.getConfiguration(), stateDir);
 
-        // create state dir
-        try {
-            stateDir.getFileSystem(job.getConfiguration()).mkdirs(stateDir);
-        } catch (IOException ex) {
-            throw new RuntimeException(ex);
-        }
-
-        // archive plugins
+        // archive plugins (also create state dir)
         PluginArchive archive = new PluginArchive.Builder()
             .addLoadedRubyGems(jruby)
             .build();
@@ -277,24 +270,30 @@ public class MapReduceExecutor
             TaskReportSet reportSet = new TaskReportSet(job.getJobID());
 
             int interval = Job.getCompletionPollInterval(job.getConfiguration());
-            while (!job.isComplete()) {
+            while (true) {
+                EmbulkMapReduce.JobStatus status = EmbulkMapReduce.getJobStatus(job);
+                if (status.isComplete()) {
+                    break;
+                }
+                log.info(String.format("map %.1f%% reduce %.1f%%",
+                            status.getMapProgress() * 100, status.getReduceProgress() * 100));
+
                 //if (job.getState() == JobStatus.State.PREP) {
                 //    continue;
                 //}
-                log.info(String.format("map %.1f%% reduce %.1f%%",
-                            job.mapProgress() * 100, job.reduceProgress() * 100));
                 Thread.sleep(interval);
 
                 updateProcessState(job, reportSet, stateDir, state, modelManager, true);
             }
 
+            EmbulkMapReduce.JobStatus status = EmbulkMapReduce.getJobStatus(job);
+            log.info(String.format("map %.1f%% reduce %.1f%%",
+                        status.getMapProgress() * 100, status.getReduceProgress() * 100));
             // Here sets inProgress=false to updateProcessState method to tell that race
             // condition of AttemptReport.readFrom and .writeTo does not happen here.
-            log.info(String.format("map %.1f%% reduce %.1f%%",
-                        job.mapProgress() * 100, job.reduceProgress() * 100));
             updateProcessState(job, reportSet, stateDir, state, modelManager, false);
 
-            Counters counters = job.getCounters();
+            Counters counters = EmbulkMapReduce.getJobCounters(job);
             if (counters != null) {
                 log.info(counters.toString());
             }

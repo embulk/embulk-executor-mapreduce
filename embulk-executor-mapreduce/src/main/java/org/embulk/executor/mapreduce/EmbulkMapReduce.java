@@ -2,6 +2,7 @@ package org.embulk.executor.mapreduce;
 
 import java.util.List;
 import java.util.ArrayList;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.io.File;
 import java.io.IOException;
@@ -26,6 +27,7 @@ import org.apache.hadoop.io.NullWritable;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.mapreduce.JobContext;
+import org.apache.hadoop.mapreduce.Counters;
 import org.apache.hadoop.mapreduce.TaskAttemptID;
 import org.apache.hadoop.mapreduce.Mapper;
 import org.apache.hadoop.mapreduce.Reducer;
@@ -134,44 +136,128 @@ public class EmbulkMapReduce
         }
     }
 
-    public static List<TaskAttemptID> listAttempts(Configuration config,
-            Path stateDir) throws IOException
+    public static class JobStatus
     {
-        FileStatus[] stats = stateDir.getFileSystem(config).listStatus(stateDir);
-        ImmutableList.Builder<TaskAttemptID> builder = ImmutableList.builder();
-        for (FileStatus stat : stats) {
-            if (stat.getPath().getName().startsWith("attempt_") && stat.isFile()) {
-                String name = stat.getPath().getName();
-                try {
-                    builder.add(TaskAttemptID.forName(name));
-                } catch (IllegalArgumentException ex) {
-                    // ignore
-                }
+        private final boolean completed;
+        private final float mapProgress;
+        private final float reduceProgress;
+
+        public JobStatus(boolean completed, float mapProgress, float reduceProgress)
+        {
+            this.completed = completed;
+            this.mapProgress = mapProgress;
+            this.reduceProgress = reduceProgress;
+        }
+
+        public boolean isComplete()
+        {
+            return completed;
+        }
+
+        public float getMapProgress()
+        {
+            return mapProgress;
+        }
+
+        public float getReduceProgress()
+        {
+            return reduceProgress;
+        }
+    }
+
+    public static JobStatus getJobStatus(final Job job) throws IOException
+    {
+        return fragileHadoopOperation("getting job status", new Callable<JobStatus>() {
+            public JobStatus call() throws IOException
+            {
+                return new JobStatus(job.isComplete(), job.mapProgress(), job.reduceProgress());
             }
-        }
-        return builder.build();
+        });
     }
 
-    public static PluginArchive readPluginArchive(File localDirectory, Configuration config,
-            Path stateDir, ModelManager modelManager) throws IOException
+    public static Counters getJobCounters(final Job job) throws IOException
     {
-        List<PluginArchive.GemSpec> specs = modelManager.readObject(
-                new ArrayList<PluginArchive.GemSpec>() {}.getClass(),
-                config.get(CK_PLUGIN_ARCHIVE_SPECS));
-        Path path = new Path(stateDir, PLUGIN_ARCHIVE_FILE_NAME);
-        try (FSDataInputStream in = path.getFileSystem(config).open(path)) {
-            return PluginArchive.load(localDirectory, specs, in);
-        }
+        return fragileHadoopOperation("getting job counters", new Callable<Counters>() {
+            public Counters call() throws IOException
+            {
+                return job.getCounters();
+            }
+        });
     }
 
-    public static void writePluginArchive(Configuration config, Path stateDir,
-            PluginArchive archive, ModelManager modelManager) throws IOException
+    public static List<TaskAttemptID> listAttempts(final Configuration config,
+            final Path stateDir) throws IOException
     {
-        Path path = new Path(stateDir, PLUGIN_ARCHIVE_FILE_NAME);
-        try (FSDataOutputStream out = path.getFileSystem(config).create(path, true)) {
-            List<PluginArchive.GemSpec> specs = archive.dump(out);
-            config.set(CK_PLUGIN_ARCHIVE_SPECS, modelManager.writeObject(specs));
-        }
+        return fragileHadoopOperation("getting list of attempt state files on "+stateDir, new Callable<List<TaskAttemptID>>() {
+            public List<TaskAttemptID> call() throws IOException
+            {
+                FileStatus[] stats = stateDir.getFileSystem(config).listStatus(stateDir);
+                ImmutableList.Builder<TaskAttemptID> builder = ImmutableList.builder();
+                for (FileStatus stat : stats) {
+                    if (stat.getPath().getName().startsWith("attempt_") && stat.isFile()) {
+                        String name = stat.getPath().getName();
+                        TaskAttemptID id;
+                        try {
+                            id = TaskAttemptID.forName(name);
+                        } catch (Exception ex) {
+                            // ignore this file
+                            continue;
+                        }
+                        builder.add(id);
+                    }
+                }
+                return builder.build();
+            }
+        });
+    }
+
+    public static void writePluginArchive(final Configuration config, final Path stateDir,
+            final PluginArchive archive, final ModelManager modelManager) throws IOException
+    {
+        final Path path = new Path(stateDir, PLUGIN_ARCHIVE_FILE_NAME);
+        fragileHadoopOperation("writing plugin archive to "+path, new Callable<Void>() {
+            public Void call() throws IOException
+            {
+                stateDir.getFileSystem(config).mkdirs(stateDir);
+                try (FSDataOutputStream out = path.getFileSystem(config).create(path, true)) {
+                    List<PluginArchive.GemSpec> specs = archive.dump(out);
+                    config.set(CK_PLUGIN_ARCHIVE_SPECS, modelManager.writeObject(specs));
+                }
+                return null;
+            }
+        });
+    }
+
+    public static PluginArchive readPluginArchive(final File localDirectory, final Configuration config,
+            Path stateDir, final ModelManager modelManager) throws IOException
+    {
+        final Path path = new Path(stateDir, PLUGIN_ARCHIVE_FILE_NAME);
+        return fragileHadoopOperation("reading plugin archive file from "+path, new Callable<PluginArchive>() {
+                public PluginArchive call() throws IOException
+                {
+                    List<PluginArchive.GemSpec> specs = modelManager.readObject(
+                            new ArrayList<PluginArchive.GemSpec>() {}.getClass(),
+                            config.get(CK_PLUGIN_ARCHIVE_SPECS));
+                    try (FSDataInputStream in = path.getFileSystem(config).open(path)) {
+                        return PluginArchive.load(localDirectory, specs, in);
+                    }
+                }
+        });
+    }
+
+    public static void writeAttemptStateFile(final Configuration config,
+            Path stateDir, final AttemptState state, final ModelManager modelManager) throws IOException
+    {
+        final Path path = new Path(stateDir, state.getAttemptId().toString());
+        fragileHadoopOperation("writing attempt state file to "+path, new Callable<Void>() {
+            public Void call() throws IOException
+            {
+                try (FSDataOutputStream out = path.getFileSystem(config).create(path, true)) {
+                    state.writeTo(out, modelManager);
+                }
+                return null;
+            }
+        });
     }
 
     public static AttemptState readAttemptStateFile(final Configuration config,
@@ -236,13 +322,45 @@ public class EmbulkMapReduce
         }
     }
 
-    public static void writeAttemptStateFile(Configuration config,
-            Path stateDir, AttemptState state, ModelManager modelManager) throws IOException
+    private static <T> T fragileHadoopOperation(final String message, final Callable<T> callable) throws IOException
     {
-        Path path = new Path(stateDir, state.getAttemptId().toString());
-        // TODO retry file create and write
-        try (FSDataOutputStream out = path.getFileSystem(config).create(path, true)) {
-            state.writeTo(out, modelManager);
+        final Logger log = Exec.getLogger(EmbulkMapReduce.class);
+        try {
+            return retryExecutor()
+                    .withRetryLimit(5)
+                    .withInitialRetryWait(2 * 1000)
+                    .withMaxRetryWait(20 * 1000)
+                    .runInterruptible(new Retryable<T>() {
+                        @Override
+                        public T call() throws Exception
+                        {
+                            return callable.call();
+                        }
+
+                        @Override
+                        public boolean isRetryableException(Exception exception)
+                        {
+                            return true;
+                        }
+
+                        @Override
+                        public void onRetry(Exception exception, int retryCount, int retryLimit, int retryWait)
+                                throws RetryGiveupException
+                        {
+                            log.warn("Retrying {} ({}/{}) error: {}",
+                                    message, retryCount, retryLimit, exception);
+                        }
+
+                        @Override
+                        public void onGiveup(Exception firstException, Exception lastException)
+                                throws RetryGiveupException
+                        { }
+                    });
+        } catch (RetryGiveupException e) {
+            Throwables.propagateIfInstanceOf(e.getCause(), IOException.class);
+            throw Throwables.propagate(e.getCause());
+        } catch (InterruptedException e) {
+            throw new InterruptedIOException();
         }
     }
 
