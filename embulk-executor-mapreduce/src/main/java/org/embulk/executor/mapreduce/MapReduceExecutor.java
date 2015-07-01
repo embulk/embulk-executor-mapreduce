@@ -167,9 +167,11 @@ public class MapReduceExecutor
                 return true;
             }
 
-            // TaskAttemptID.compareTo returns unexpected result if 2 jobs run on different JobTrackers
-            // because JobID includes start time of a JobTracker rather than start time of a job.
-            // To mitigate this problem, this code assumes the running job is always the latest.
+            // Here expects that TaskAttemptID.compareTo returns <= 0 if attempt is started later.
+            // However, it returns unexpected result if 2 jobs run on different JobTrackers because
+            // JobID includes start time of a JobTracker with sequence number in the JobTracker
+            // rather than start time of a job. To mitigate this problem, this code assumes that
+            // attempts of the running job is always newer.
             boolean pastRunning = past.getTaskAttempId().getJobID().equals(runningJobId);
             boolean reportRunning = report.getTaskAttempId().getJobID().equals(runningJobId);
             if (!pastRunning && reportRunning) {
@@ -452,8 +454,6 @@ public class MapReduceExecutor
             return attemptState;
         }
     }
-
-    private static final int TASK_EVENT_FETCH_SIZE = 100;
 
     private static List<AttemptReport> getAttemptReports(Configuration config,
             Path stateDir, ModelManager modelManager,
