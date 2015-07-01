@@ -175,7 +175,8 @@ public class EmbulkMapReduce
     }
 
     public static AttemptState readAttemptStateFile(final Configuration config,
-            Path stateDir, TaskAttemptID id, final ModelManager modelManager) throws IOException
+            Path stateDir, TaskAttemptID id, final ModelManager modelManager,
+            final boolean concurrentWriteIsPossible) throws IOException
     {
         final Logger log = Exec.getLogger(EmbulkMapReduce.class);
         final Path path = new Path(stateDir, id.toString());
@@ -186,35 +187,46 @@ public class EmbulkMapReduce
                     .withMaxRetryWait(20 * 1000)
                     .runInterruptible(new Retryable<AttemptState>() {
                         @Override
-                        public AttemptState call() throws IOException {
+                        public AttemptState call() throws IOException
+                        {
                             try (FSDataInputStream in = path.getFileSystem(config).open(path)) {
                                 return AttemptState.readFrom(in, modelManager);
                             }
                         }
 
                         @Override
-                        public boolean isRetryableException(Exception exception) {
-                            // AttemptState.readFrom throws 2 types of exceptions:
-                            //   a) EOFException: race between readFrom and writeTo. See comments on AttemptState.readFrom.
-                            //   b) IOException "Cannot obtain block length for LocatedBlock": HDFS-1058. See https://github.com/embulk/embulk-executor-mapreduce/pull/3
-                            //   c) other IOException: FileSystem is not working
+                        public boolean isRetryableException(Exception exception)
+                        {
+                            // AttemptState.readFrom throws 4 types of exceptions:
                             //
-                            // a) and b) are temporary problem which is not critical. c) could be temporary problem and it is critical.
-                            // Here retries regardless of the exception type because we can't distinguish b) from c).
+                            //   concurrentWriteIsPossible == true:
+                            //      a) EOFException: race between readFrom and writeTo. See comments on AttemptState.readFrom.
+                            //      b) EOFException: file exists but its format is invalid because this task is retried and last job/attempt left corrupted files (such as empty, partially written, etc)
+                            //      c) IOException "Cannot obtain block length for LocatedBlock": HDFS-1058. See https://github.com/embulk/embulk-executor-mapreduce/pull/3
+                            //      d) IOException: FileSystem is not working
+                            //   concurrentWriteIsPossible == false:
+                            //      e) EOFException: file exists but its format is invalid because this task is retried and last job/attempt left corrupted files (such as empty, partially written, etc)
+                            //      f) IOException: FileSystem is not working
+                            //
+                            if (exception instanceof EOFException && !concurrentWriteIsPossible) {
+                                // e) is not recoverable.
+                                return false;
+                            }
                             return true;
                         }
 
                         @Override
                         public void onRetry(Exception exception, int retryCount, int retryLimit, int retryWait)
-                                throws RetryGiveupException {
+                                throws RetryGiveupException
+                        {
                             log.warn("Retrying opening state file {} ({}/{}) error: {}",
                                     path, retryCount, retryLimit, exception);
                         }
 
                         @Override
                         public void onGiveup(Exception firstException, Exception lastException)
-                                throws RetryGiveupException {
-                        }
+                                throws RetryGiveupException
+                        { }
                     });
         } catch (RetryGiveupException e) {
             Throwables.propagateIfInstanceOf(e.getCause(), IOException.class);
