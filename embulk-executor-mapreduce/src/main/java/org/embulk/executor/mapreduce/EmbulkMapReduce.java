@@ -207,7 +207,8 @@ public class EmbulkMapReduce
                         @Override
                         public void onRetry(Exception exception, int retryCount, int retryLimit, int retryWait)
                                 throws RetryGiveupException {
-                            log.warn("Retrying opening state file " + path.getName() + " error: " + exception);
+                            log.warn("Retrying opening state file {} ({}/{}) error: {}",
+                                    path, retryCount, retryLimit, exception);
                         }
 
                         @Override
