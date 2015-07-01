@@ -118,7 +118,7 @@ public class EmbulkMapReduce
                 obj = new EmbulkService(systemConfig);
             } else {
                 Class<?> serviceClass = Class.forName(serviceClassName);
-                obj = serviceClass.getConstructor(ConfigSource.class).newInstance(config);
+                obj = serviceClass.getConstructor(ConfigSource.class).newInstance(systemConfig);
             }
 
             if (obj instanceof EmbulkService) {
