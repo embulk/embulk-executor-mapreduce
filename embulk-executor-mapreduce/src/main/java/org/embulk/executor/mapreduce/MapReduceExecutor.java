@@ -1,9 +1,11 @@
 package org.embulk.executor.mapreduce;
 
 import java.util.List;
-import java.util.Map;
+import java.util.Collection;
 import java.util.Set;
+import java.util.Map;
 import java.util.HashSet;
+import java.util.HashMap;
 import java.io.File;
 import java.io.IOException;
 import java.io.EOFException;
@@ -29,6 +31,7 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.mapreduce.JobContext;
 import org.apache.hadoop.mapreduce.Cluster;
 import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.mapreduce.JobID;
 import org.apache.hadoop.mapreduce.Counters;
 import org.apache.hadoop.mapreduce.TaskType;
 import org.apache.hadoop.mapreduce.TaskAttemptID;
@@ -37,6 +40,7 @@ import org.apache.hadoop.mapreduce.MRJobConfig;
 import org.apache.hadoop.mapreduce.lib.output.NullOutputFormat;
 import org.embulk.exec.ForSystemConfig;
 import org.embulk.config.ConfigSource;
+import org.embulk.config.CommitReport;
 import org.embulk.config.ConfigException;
 import org.embulk.config.TaskSource;
 import org.embulk.config.ModelManager;
@@ -116,6 +120,67 @@ public class MapReduceExecutor
         }
     }
 
+    private static class TaskReportSet
+    {
+        private Map<Integer, AttemptReport> inputTaskReports = new HashMap<>();
+        private Map<Integer, AttemptReport> outputTaskReports = new HashMap<>();
+
+        private final JobID runningJobId;
+
+        public TaskReportSet(JobID runningJobId)
+        {
+            this.runningJobId = runningJobId;
+        }
+
+        public Collection<AttemptReport> getLatestInputAttemptReports()
+        {
+            return inputTaskReports.values();
+        }
+
+        public Collection<AttemptReport> getLatestOutputAttemptReports()
+        {
+            return outputTaskReports.values();
+        }
+
+        public void update(AttemptReport report)
+        {
+            if (report.getInputTaskIndex().isPresent()) {
+                int taskIndex = report.getInputTaskIndex().get();
+                AttemptReport past = inputTaskReports.get(taskIndex);
+                if (past == null || checkOverwrite(past, report)) {
+                    inputTaskReports.put(taskIndex, report);
+                }
+            }
+            if (report.getOutputTaskIndex().isPresent()) {
+                int taskIndex = report.getOutputTaskIndex().get();
+                AttemptReport past = outputTaskReports.get(taskIndex);
+                if (past == null || checkOverwrite(past, report)) {
+                    outputTaskReports.put(taskIndex, report);
+                }
+            }
+        }
+
+        private boolean checkOverwrite(AttemptReport past, AttemptReport report)
+        {
+            // if already committed successfully, use it
+            if (!past.isOutputCommitted() && report.isOutputCommitted()) {
+                return true;
+            }
+
+            // Here expects that TaskAttemptID.compareTo returns <= 0 if attempt is started later.
+            // However, it returns unexpected result if 2 jobs run on different JobTrackers because
+            // JobID includes start time of a JobTracker with sequence number in the JobTracker
+            // rather than start time of a job. To mitigate this problem, this code assumes that
+            // attempts of the running job is always newer.
+            boolean pastRunning = past.getTaskAttempId().getJobID().equals(runningJobId);
+            boolean reportRunning = report.getTaskAttempId().getJobID().equals(runningJobId);
+            if (!pastRunning && reportRunning) {
+                return true;
+            }
+            return past.getTaskAttempId().compareTo(report.getTaskAttempId()) <= 0;
+        }
+    }
+
     void run(MapReduceExecutorTask task,
             int mapTaskCount, int reduceTaskCount, ProcessState state)
     {
@@ -163,14 +228,7 @@ public class MapReduceExecutor
         EmbulkMapReduce.setMapTaskCount(job.getConfiguration(), mapTaskCount);  // used by EmbulkInputFormat
         EmbulkMapReduce.setStateDirectoryPath(job.getConfiguration(), stateDir);
 
-        // create state dir
-        try {
-            stateDir.getFileSystem(job.getConfiguration()).mkdirs(stateDir);
-        } catch (IOException ex) {
-            throw new RuntimeException(ex);
-        }
-
-        // archive plugins
+        // archive plugins (also create state dir)
         PluginArchive archive = new PluginArchive.Builder()
             .addLoadedRubyGems(jruby)
             .build();
@@ -211,26 +269,33 @@ public class MapReduceExecutor
 
         try {
             job.submit();
+            TaskReportSet reportSet = new TaskReportSet(job.getJobID());
 
             int interval = Job.getCompletionPollInterval(job.getConfiguration());
-            while (!job.isComplete()) {
+            while (true) {
+                EmbulkMapReduce.JobStatus status = EmbulkMapReduce.getJobStatus(job);
+                if (status.isComplete()) {
+                    break;
+                }
+                log.info(String.format("map %.1f%% reduce %.1f%%",
+                            status.getMapProgress() * 100, status.getReduceProgress() * 100));
+
                 //if (job.getState() == JobStatus.State.PREP) {
                 //    continue;
                 //}
-                log.info(String.format("map %.1f%% reduce %.1f%%",
-                            job.mapProgress() * 100, job.reduceProgress() * 100));
                 Thread.sleep(interval);
 
-                updateProcessState(job, mapTaskCount, stateDir, state, modelManager, true);
+                updateProcessState(job, reportSet, stateDir, state, modelManager, true);
             }
 
-            // Here sets skipUnavailable=false to updateProcessState method because race
-            // condition of AttemptReport.readFrom and .writeTo does not happen here.
+            EmbulkMapReduce.JobStatus status = EmbulkMapReduce.getJobStatus(job);
             log.info(String.format("map %.1f%% reduce %.1f%%",
-                        job.mapProgress() * 100, job.reduceProgress() * 100));
-            updateProcessState(job, mapTaskCount, stateDir, state, modelManager, false);
+                        status.getMapProgress() * 100, status.getReduceProgress() * 100));
+            // Here sets inProgress=false to updateProcessState method to tell that race
+            // condition of AttemptReport.readFrom and .writeTo does not happen here.
+            updateProcessState(job, reportSet, stateDir, state, modelManager, false);
 
-            Counters counters = job.getCounters();
+            Counters counters = EmbulkMapReduce.getJobCounters(job);
             if (counters != null) {
                 log.info(counters.toString());
             }
@@ -292,50 +357,39 @@ public class MapReduceExecutor
             + String.format("%09d", time.getNano());
     }
 
-    private void updateProcessState(Job job, int mapTaskCount, Path stateDir,
-            ProcessState state, ModelManager modelManager, boolean skipUnavailable) throws IOException
+    private void updateProcessState(Job job, TaskReportSet reportSet, Path stateDir,
+            ProcessState state, ModelManager modelManager, boolean inProgress) throws IOException
     {
-        List<AttemptReport> reports = getAttemptReports(job.getConfiguration(), stateDir, modelManager);
+        List<AttemptReport> reports = getAttemptReports(job.getConfiguration(), stateDir, modelManager,
+                inProgress, job.getJobID());
 
         for (AttemptReport report : reports) {
-            if (report == null) {
-                continue;
+            if (report.isAvailable()) {
+                reportSet.update(report);
             }
-            if (!report.isAvailable()) {
-                if (skipUnavailable) {
-                    continue;
-                } else {
-                    throw report.getUnavailableException();
-                }
-            }
-            AttemptState attempt = report.getAttemptState();
-            if (attempt.getInputTaskIndex().isPresent()) {
-                updateState(state.getInputTaskState(attempt.getInputTaskIndex().get()), attempt, true);
-            }
-            if (attempt.getOutputTaskIndex().isPresent()) {
-                updateState(state.getOutputTaskState(attempt.getOutputTaskIndex().get()), attempt, false);
-            }
+        }
+
+        for (AttemptReport report : reportSet.getLatestInputAttemptReports()) {
+            updateTaskState(state.getInputTaskState(report.getInputTaskIndex().get()), report.getAttemptState(), true);
+        }
+
+        for (AttemptReport report : reportSet.getLatestOutputAttemptReports()) {
+            updateTaskState(state.getOutputTaskState(report.getOutputTaskIndex().get()), report.getAttemptState(), true);
         }
     }
 
-    private static void updateState(TaskState state, AttemptState attempt, boolean isInput)
+    private static void updateTaskState(TaskState state, AttemptState attempt, boolean isInput)
     {
         state.start();
+        Optional<CommitReport> commitReport = isInput ? attempt.getInputCommitReport() : attempt.getOutputCommitReport();
+        boolean committed = commitReport.isPresent();
         if (attempt.getException().isPresent()) {
             if (!state.isCommitted()) {
                 state.setException(new RemoteTaskFailedException(attempt.getException().get()));
             }
-        } else if (
-                (isInput && attempt.getInputCommitReport().isPresent()) ||
-                (!isInput && attempt.getOutputCommitReport().isPresent())) {
-            state.resetException();
         }
-        if (isInput && attempt.getInputCommitReport().isPresent()) {
-            state.setCommitReport(attempt.getInputCommitReport().get());
-            state.finish();
-        }
-        if (!isInput && attempt.getOutputCommitReport().isPresent()) {
-            state.setCommitReport(attempt.getOutputCommitReport().get());
+        if (commitReport.isPresent()) {
+            state.setCommitReport(commitReport.get());
             state.finish();
         }
     }
@@ -370,6 +424,16 @@ public class MapReduceExecutor
             return unavailableException;
         }
 
+        public Optional<Integer> getInputTaskIndex()
+        {
+            return attemptState == null ? Optional.<Integer>absent() : attemptState.getInputTaskIndex();
+        }
+
+        public Optional<Integer> getOutputTaskIndex()
+        {
+            return attemptState == null ? Optional.<Integer>absent() : attemptState.getOutputTaskIndex();
+        }
+
         public boolean isInputCommitted()
         {
             return attemptState != null && attemptState.getInputCommitReport().isPresent();
@@ -380,28 +444,39 @@ public class MapReduceExecutor
             return attemptState != null && attemptState.getOutputCommitReport().isPresent();
         }
 
+        public TaskAttemptID getTaskAttempId()
+        {
+            return attemptId;
+        }
+
         public AttemptState getAttemptState()
         {
             return attemptState;
         }
     }
 
-    private static final int TASK_EVENT_FETCH_SIZE = 100;
-
     private static List<AttemptReport> getAttemptReports(Configuration config,
-            Path stateDir, ModelManager modelManager) throws IOException
+            Path stateDir, ModelManager modelManager,
+            boolean jobIsRunning, JobID runningJobId) throws IOException
     {
         ImmutableList.Builder<AttemptReport> builder = ImmutableList.builder();
         for (TaskAttemptID aid : EmbulkMapReduce.listAttempts(config, stateDir)) {
+            boolean concurrentWriteIsPossible = aid.getJobID().equals(runningJobId) && jobIsRunning;
             try {
                 AttemptState state = EmbulkMapReduce.readAttemptStateFile(config,
-                        stateDir, aid, modelManager);
+                        stateDir, aid, modelManager, concurrentWriteIsPossible);
                 builder.add(new AttemptReport(aid, state));
             } catch (IOException ex) {
-                // Either of:
-                //   * race condition of AttemptReport.writeTo and .readFrom
-                //   * FileSystem is not working
-                // See also comments on MapReduceExecutor.readAttemptStateFile.isRetryableException.
+                // See comments on readAttemptStateFile for the possible error causes.
+                if (!concurrentWriteIsPossible) {
+                    if (!(ex instanceof EOFException)) {
+                        // f) HDFS is broken. This is critical problem which should throw an exception
+                        throw new RuntimeException(ex);
+                    }
+                    // HDFS is working but file is corrupted. It is always possible that the directly
+                    // contains corrupted file created by past attempts of retried task or job. Ignore it.
+                }
+                // if concurrentWriteIsPossible, there're no ways to tell the cause. Ignore it.
                 builder.add(new AttemptReport(aid, ex));
             }
         }
