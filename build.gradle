@@ -54,6 +54,11 @@ subprojects {
         doLast { ant.move(file: "${project.name}-${project.version}.gem", todir: "${parent.projectDir}/pkg") }
     }
 
+    task gemPush(type: JRubyExec, dependsOn: ["gem"]) {
+        jrubyArgs "-rrubygems/gem_runner", "-eGem::GemRunner.new.run(ARGV)", "push"
+        script "${parent.projectDir}/pkg/${project.name}-${project.version}.gem"
+    }
+
     task gemspec << {
         file('build').mkdirs();
         file('build/gemspec').write($/
@@ -73,9 +78,4 @@ Gem::Specification.new do |spec|
 end
 /$)
     }
-}
-
-task gemPush(type: JRubyExec, dependsOn: ["gem"]) {
-    jrubyArgs "-rrubygems/gem_runner", "-eGem::GemRunner.new.run(ARGV)", "push"
-    script "pkg/${project.name}-${project.version}.gem"
 }
