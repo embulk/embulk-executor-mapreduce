@@ -167,7 +167,7 @@ public class EmbulkMapReduce
 
     public static JobStatus getJobStatus(final Job job) throws IOException
     {
-        return fragileHadoopOperation("getting job status", new Callable<JobStatus>() {
+        return hadoopOperationWithRetry("getting job status", new Callable<JobStatus>() {
             public JobStatus call() throws IOException
             {
                 return new JobStatus(job.isComplete(), job.mapProgress(), job.reduceProgress());
@@ -177,7 +177,7 @@ public class EmbulkMapReduce
 
     public static Counters getJobCounters(final Job job) throws IOException
     {
-        return fragileHadoopOperation("getting job counters", new Callable<Counters>() {
+        return hadoopOperationWithRetry("getting job counters", new Callable<Counters>() {
             public Counters call() throws IOException
             {
                 return job.getCounters();
@@ -188,7 +188,7 @@ public class EmbulkMapReduce
     public static List<TaskAttemptID> listAttempts(final Configuration config,
             final Path stateDir) throws IOException
     {
-        return fragileHadoopOperation("getting list of attempt state files on "+stateDir, new Callable<List<TaskAttemptID>>() {
+        return hadoopOperationWithRetry("getting list of attempt state files on "+stateDir, new Callable<List<TaskAttemptID>>() {
             public List<TaskAttemptID> call() throws IOException
             {
                 FileStatus[] stats = stateDir.getFileSystem(config).listStatus(stateDir);
@@ -215,7 +215,7 @@ public class EmbulkMapReduce
             final PluginArchive archive, final ModelManager modelManager) throws IOException
     {
         final Path path = new Path(stateDir, PLUGIN_ARCHIVE_FILE_NAME);
-        fragileHadoopOperation("writing plugin archive to "+path, new Callable<Void>() {
+        hadoopOperationWithRetry("writing plugin archive to "+path, new Callable<Void>() {
             public Void call() throws IOException
             {
                 stateDir.getFileSystem(config).mkdirs(stateDir);
@@ -232,7 +232,7 @@ public class EmbulkMapReduce
             Path stateDir, final ModelManager modelManager) throws IOException
     {
         final Path path = new Path(stateDir, PLUGIN_ARCHIVE_FILE_NAME);
-        return fragileHadoopOperation("reading plugin archive file from "+path, new Callable<PluginArchive>() {
+        return hadoopOperationWithRetry("reading plugin archive file from "+path, new Callable<PluginArchive>() {
                 public PluginArchive call() throws IOException
                 {
                     List<PluginArchive.GemSpec> specs = modelManager.readObject(
@@ -249,7 +249,7 @@ public class EmbulkMapReduce
             Path stateDir, final AttemptState state, final ModelManager modelManager) throws IOException
     {
         final Path path = new Path(stateDir, state.getAttemptId().toString());
-        fragileHadoopOperation("writing attempt state file to "+path, new Callable<Void>() {
+        hadoopOperationWithRetry("writing attempt state file to "+path, new Callable<Void>() {
             public Void call() throws IOException
             {
                 try (FSDataOutputStream out = path.getFileSystem(config).create(path, true)) {
@@ -322,7 +322,7 @@ public class EmbulkMapReduce
         }
     }
 
-    private static <T> T fragileHadoopOperation(final String message, final Callable<T> callable) throws IOException
+    private static <T> T hadoopOperationWithRetry(final String message, final Callable<T> callable) throws IOException
     {
         final Logger log = Exec.getLogger(EmbulkMapReduce.class);
         try {
