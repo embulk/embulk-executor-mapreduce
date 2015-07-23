@@ -5,6 +5,8 @@ import java.util.ArrayList;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.io.File;
+import java.io.InputStream;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.EOFException;
 import java.io.InterruptedIOException;
@@ -48,6 +50,7 @@ import org.embulk.spi.util.RetryExecutor.RetryGiveupException;
 import org.embulk.EmbulkService;
 import org.slf4j.Logger;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.embulk.spi.util.RetryExecutor.retryExecutor;
 
 public class EmbulkMapReduce
@@ -71,8 +74,10 @@ public class EmbulkMapReduce
     {
         try {
             ModelManager bootstrapModelManager = new ModelManager(null, new ObjectMapper());
-            return new ConfigLoader(bootstrapModelManager).fromJson(
-                    new JsonFactory().createParser(config.get(CK_SYSTEM_CONFIG)));  // TODO add fromJson(String)
+            String json = config.get(CK_SYSTEM_CONFIG);
+            try (InputStream in = new ByteArrayInputStream(json.getBytes(UTF_8))) {
+                return new ConfigLoader(bootstrapModelManager).fromJson(in);
+            }
         } catch (IOException e) {
             throw Throwables.propagate(e);
         }
@@ -384,7 +389,7 @@ public class EmbulkMapReduce
             this.injector = newEmbulkInstance(context.getConfiguration());
             this.modelManager = injector.getInstance(ModelManager.class);
             this.task = getExecutorTask(injector, context.getConfiguration());
-            this.session = new ExecSession(injector, task.getExecConfig());
+            this.session = ExecSession.builder(injector).fromExecConfig(task.getExecConfig()).build();
 
             try {
                 LocalDirAllocator localDirAllocator = new LocalDirAllocator(MRConfig.LOCAL_DIR);
