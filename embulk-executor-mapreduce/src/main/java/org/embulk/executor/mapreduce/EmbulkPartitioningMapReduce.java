@@ -45,11 +45,18 @@ public class EmbulkPartitioningMapReduce
         private SessionRunner runner;
 
         @Override
-        public void setup(Context context) throws IOException
+        public void setup(Context context) throws IOException, InterruptedException
         {
             this.context = context;
             this.runner = new SessionRunner(context);
-            runner.readPluginArchive().restoreLoadPathsTo(runner.getScriptingContainer());
+
+            runner.execSession(new ExecAction<Void>() {  // for Exec.getLogger
+                public Void run() throws IOException
+                {
+                    runner.readPluginArchive().restoreLoadPathsTo(runner.getScriptingContainer());
+                    return null;
+                }
+            });
         }
 
         @Override

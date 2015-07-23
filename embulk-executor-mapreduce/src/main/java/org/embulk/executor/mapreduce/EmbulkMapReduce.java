@@ -324,7 +324,12 @@ public class EmbulkMapReduce
 
     private static <T> T hadoopOperationWithRetry(final String message, final Callable<T> callable) throws IOException
     {
-        final Logger log = Exec.getLogger(EmbulkMapReduce.class);
+        return hadoopOperationWithRetry(Exec.getLogger(EmbulkMapReduce.class), message, callable);
+    }
+
+    private static <T> T hadoopOperationWithRetry(final Logger log,
+            final String message, final Callable<T> callable) throws IOException
+    {
         try {
             return retryExecutor()
                     .withRetryLimit(5)
@@ -505,11 +510,18 @@ public class EmbulkMapReduce
         private SessionRunner runner;
 
         @Override
-        public void setup(Context context) throws IOException
+        public void setup(Context context) throws IOException, InterruptedException
         {
             this.context = context;
             this.runner = new SessionRunner(context);
-            runner.readPluginArchive().restoreLoadPathsTo(runner.getScriptingContainer());
+
+            runner.execSession(new ExecAction<Void>() {  // for Exec.getLogger
+                public Void run() throws IOException
+                {
+                    runner.readPluginArchive().restoreLoadPathsTo(runner.getScriptingContainer());
+                    return null;
+                }
+            });
         }
 
         @Override
