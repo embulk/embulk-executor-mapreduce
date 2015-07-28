@@ -14,9 +14,7 @@ import java.lang.reflect.InvocationTargetException;
 import com.google.inject.Injector;
 import com.google.common.base.Optional;
 import com.google.common.base.Throwables;
-import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
-import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.jruby.embed.ScriptingContainer;
 import org.apache.hadoop.fs.Path;
@@ -28,7 +26,6 @@ import org.apache.hadoop.io.IntWritable;
 import org.apache.hadoop.io.NullWritable;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.mapreduce.Job;
-import org.apache.hadoop.mapreduce.JobContext;
 import org.apache.hadoop.mapreduce.Counters;
 import org.apache.hadoop.mapreduce.TaskAttemptID;
 import org.apache.hadoop.mapreduce.Mapper;
@@ -233,6 +230,9 @@ public class EmbulkMapReduce
         });
     }
 
+    public static class GemSpecListType extends ArrayList<PluginArchive.GemSpec>
+    { }
+
     public static PluginArchive readPluginArchive(final File localDirectory, final Configuration config,
             Path stateDir, final ModelManager modelManager) throws IOException
     {
@@ -241,7 +241,7 @@ public class EmbulkMapReduce
                 public PluginArchive call() throws IOException
                 {
                     List<PluginArchive.GemSpec> specs = modelManager.readObject(
-                            new ArrayList<PluginArchive.GemSpec>() {}.getClass(),
+                            GemSpecListType.class,
                             config.get(CK_PLUGIN_ARCHIVE_SPECS));
                     try (FSDataInputStream in = path.getFileSystem(config).open(path)) {
                         return PluginArchive.load(localDirectory, specs, in);
