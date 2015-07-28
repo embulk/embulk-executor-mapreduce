@@ -374,7 +374,7 @@ public class MapReduceExecutor
         }
 
         for (AttemptReport report : reportSet.getLatestOutputAttemptReports()) {
-            updateTaskState(state.getOutputTaskState(report.getOutputTaskIndex().get()), report.getAttemptState(), true);
+            updateTaskState(state.getOutputTaskState(report.getOutputTaskIndex().get()), report.getAttemptState(), false);
         }
     }
 
