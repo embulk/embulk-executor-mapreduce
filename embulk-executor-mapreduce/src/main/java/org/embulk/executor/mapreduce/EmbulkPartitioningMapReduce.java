@@ -156,11 +156,12 @@ public class EmbulkPartitioningMapReduce
         {
             this.context = context;
             this.runner = new SessionRunner(context);
-            runner.readPluginArchive().restoreLoadPathsTo(runner.getScriptingContainer());
 
             runner.execSession(new ExecAction<Void>() {
                 public Void run() throws Exception
                 {
+                    runner.readPluginArchive().restoreLoadPathsTo(runner.getScriptingContainer());
+
                     int taskIndex = context.getTaskAttemptID().getTaskID().getId();
 
                     ProcessTask task = runner.getMapReduceExecutorTask().getProcessTask();
