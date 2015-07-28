@@ -1,3 +1,8 @@
+Release 0.1.5 - 2015-07-28
+
+* Fixed unexpected IllegalStateException and NullPointerException
+
+
 Release 0.1.4 - 2015-07-23
 
 * Fixed exception at readPluginArchive

@@ -8,7 +8,7 @@ import com.github.jrubygradle.JRubyExec
 
 allprojects {
     group = 'org.embulk.executor.mapreduce'
-    version = '0.1.4'
+    version = '0.1.5'
 }
 
 subprojects {
