@@ -11,6 +11,7 @@ import org.apache.hadoop.io.IntWritable;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.mapreduce.Mapper;
 import org.apache.hadoop.mapreduce.Reducer;
+import org.apache.hadoop.mapreduce.TaskAttemptID;
 import org.embulk.config.ModelManager;
 import org.embulk.config.TaskReport;
 import org.embulk.config.ConfigDiff;
@@ -53,10 +54,16 @@ public class EmbulkPartitioningMapReduce
             runner.execSession(new ExecAction<Void>() {  // for Exec.getLogger
                 public Void run() throws IOException
                 {
-                    runner.readPluginArchive().restoreLoadPathsTo(runner.getScriptingContainer());
+                    restorePluginLoadPaths();
                     return null;
                 }
             });
+        }
+
+        protected void restorePluginLoadPaths()
+                throws IOException
+        {
+            runner.readPluginArchive().restoreLoadPathsTo(runner.getScriptingContainer());
         }
 
         @Override
@@ -119,7 +126,7 @@ public class EmbulkPartitioningMapReduce
                         { }
                     });
 
-            AttemptStateUpdateHandler handler = new AttemptStateUpdateHandler(runner,
+            AttemptStateUpdateHandler handler = newAttemptStateUpdateHandler(runner,
                     new AttemptState(context.getTaskAttemptID(), Optional.of(taskIndex), Optional.<Integer>absent()));
 
             try {
@@ -139,6 +146,11 @@ public class EmbulkPartitioningMapReduce
                 //    throw ex;
                 //}
             }
+        }
+
+        protected AttemptStateUpdateHandler newAttemptStateUpdateHandler(SessionRunner runner, AttemptState attemptState)
+        {
+            return new AttemptStateUpdateHandler(runner, attemptState);
         }
     }
 
@@ -160,7 +172,7 @@ public class EmbulkPartitioningMapReduce
             runner.execSession(new ExecAction<Void>() {
                 public Void run() throws Exception
                 {
-                    runner.readPluginArchive().restoreLoadPathsTo(runner.getScriptingContainer());
+                    restorePluginLoadPaths();
 
                     int taskIndex = context.getTaskAttemptID().getTaskID().getId();
 
@@ -168,7 +180,7 @@ public class EmbulkPartitioningMapReduce
                     ExecSession exec = runner.getExecSession();
                     OutputPlugin outputPlugin = exec.newPlugin(OutputPlugin.class, task.getOutputPluginType());
 
-                    handler = new AttemptStateUpdateHandler(runner,
+                    handler = newAttemptStateUpdateHandler(runner,
                             new AttemptState(context.getTaskAttemptID(), Optional.<Integer>absent(), Optional.of(taskIndex)));
 
                     output = outputPlugin.open(task.getOutputTaskSource(), task.getExecutorSchema(), taskIndex);
@@ -178,6 +190,17 @@ public class EmbulkPartitioningMapReduce
                     return null;
                 }
             });
+        }
+
+        protected void restorePluginLoadPaths()
+                throws IOException
+        {
+            runner.readPluginArchive().restoreLoadPathsTo(runner.getScriptingContainer());
+        }
+
+        protected AttemptStateUpdateHandler newAttemptStateUpdateHandler(SessionRunner runner, AttemptState attemptState)
+        {
+            return new AttemptStateUpdateHandler(runner, attemptState);
         }
 
         @Override

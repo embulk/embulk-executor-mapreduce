@@ -15,9 +15,8 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
-import java.util.Objects;
 
-import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.assertEquals;
 
 public class TestPageBufferWritable
 {
@@ -70,7 +69,7 @@ public class TestPageBufferWritable
         Page p1 = pw1.get();
         Page p2 = pw2.get();
 
-        assertTrue(Objects.equals(p1.getStringReferences(), p2.getStringReferences()));
+        assertEquals(p1.getStringReferences(), p2.getStringReferences());
         assertBufferEquals(p1.buffer(), p2.buffer());
     }
 
@@ -81,6 +80,6 @@ public class TestPageBufferWritable
 
     static void assertBufferEquals(Buffer b1, Buffer b2)
     {
-        assertTrue(Objects.equals(b1, b2));
+        assertEquals(b1, b2);
     }
 }
