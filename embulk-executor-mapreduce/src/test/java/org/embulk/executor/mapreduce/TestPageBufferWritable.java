@@ -1,6 +1,5 @@
 package org.embulk.executor.mapreduce;
 
-import org.embulk.EmbulkTestRuntime;
 import org.embulk.spi.Buffer;
 import org.embulk.spi.Page;
 import org.embulk.spi.PageTestUtils;
@@ -15,14 +14,13 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
-import java.util.Objects;
 
-import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.assertEquals;
 
 public class TestPageBufferWritable
 {
     @Rule
-    public EmbulkTestRuntime runtime = new EmbulkTestRuntime();
+    public MapReduceExecutorTestRuntime runtime = new MapReduceExecutorTestRuntime();
 
     @Test
     public void writeAndRead() throws IOException
@@ -70,7 +68,7 @@ public class TestPageBufferWritable
         Page p1 = pw1.get();
         Page p2 = pw2.get();
 
-        assertTrue(Objects.equals(p1.getStringReferences(), p2.getStringReferences()));
+        assertEquals(p1.getStringReferences(), p2.getStringReferences());
         assertBufferEquals(p1.buffer(), p2.buffer());
     }
 
@@ -81,6 +79,6 @@ public class TestPageBufferWritable
 
     static void assertBufferEquals(Buffer b1, Buffer b2)
     {
-        assertTrue(Objects.equals(b1, b2));
+        assertEquals(b1, b2);
     }
 }

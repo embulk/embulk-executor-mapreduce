@@ -4,7 +4,6 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.mapreduce.JobContext;
 import org.apache.hadoop.mapreduce.JobID;
 import org.apache.hadoop.mapreduce.task.JobContextImpl;
-import org.embulk.EmbulkTestRuntime;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -14,7 +13,7 @@ import static org.junit.Assert.assertEquals;
 public class TestEmbulkInputFormat
 {
     @Rule
-    public EmbulkTestRuntime runtime = new EmbulkTestRuntime();
+    public MapReduceExecutorTestRuntime runtime = new MapReduceExecutorTestRuntime();
 
     private Configuration conf;
     private EmbulkInputFormat format;
@@ -33,6 +32,7 @@ public class TestEmbulkInputFormat
         checkNumOfSplits(0);
 
         for (int i = 0; i < 10; i++) {
+
             int split = runtime.getRandom().nextInt(10000);
             checkNumOfSplits(split);
         }

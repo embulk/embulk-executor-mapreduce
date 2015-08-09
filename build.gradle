@@ -45,8 +45,11 @@ subprojects {
         compile  'org.embulk:embulk-core:0.7.6'
         provided 'org.embulk:embulk-core:0.7.6'
         compile 'org.apache.hadoop:hadoop-client:2.6.0'
+
         testCompile 'junit:junit:4.+'
-        testCompile 'org.embulk:embulk-core:0.6.18:tests'
+        testCompile 'org.embulk:embulk-core:0.7.6:tests'
+        testCompile 'org.embulk:embulk-standards:0.7.6'
+        testRuntime 'org.embulk.executor.mapreduce:embulk-executor-mapreduce'
     }
 
     tasks.withType(JavaCompile) {

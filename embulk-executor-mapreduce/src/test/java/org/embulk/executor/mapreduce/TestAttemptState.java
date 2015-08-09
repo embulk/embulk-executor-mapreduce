@@ -3,24 +3,19 @@ package org.embulk.executor.mapreduce;
 import com.google.common.base.Optional;
 
 import org.apache.hadoop.mapreduce.TaskAttemptID;
-import org.embulk.EmbulkTestRuntime;
 import org.junit.Rule;
 import org.junit.Test;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
-import java.io.EOFException;
 import java.io.IOException;
-import java.io.InputStream;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
 
-public class TimeAttemptState
+public class TestAttemptState
 {
     @Rule
-    public EmbulkTestRuntime runtime = new EmbulkTestRuntime();
+    public MapReduceExecutorTestRuntime runtime = new MapReduceExecutorTestRuntime();
 
     @Test
     public void readAndWrite()
@@ -32,8 +27,8 @@ public class TimeAttemptState
 
         AttemptState attemptState = new AttemptState(attemptId, Optional.of(inputTaskIndex), Optional.of(outputTaskIndex));
         attemptState.setException(ex);
-        attemptState.setInputCommitReport(runtime.getExec().newCommitReport());
-        attemptState.setOutputCommitReport(runtime.getExec().newCommitReport());
+        attemptState.setInputTaskReport(runtime.getExec().newTaskReport());
+        attemptState.setOutputTaskReport(runtime.getExec().newTaskReport());
 
         try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             attemptState.writeTo(out, runtime.getModelManager());
@@ -50,8 +45,8 @@ public class TimeAttemptState
         assertEquals(s1.getInputTaskIndex(), s2.getInputTaskIndex());
         assertEquals(s1.getOutputTaskIndex(), s2.getOutputTaskIndex());
         assertEquals(s1.getException(), s2.getException());
-        assertEquals(s1.getInputCommitReport(), s2.getInputCommitReport());
-        assertEquals(s1.getOutputCommitReport(), s2.getOutputCommitReport());
+        assertEquals(s1.getInputTaskReport(), s2.getInputTaskReport());
+        assertEquals(s1.getOutputTaskReport(), s2.getOutputTaskReport());
     }
 
     @Test
