@@ -80,7 +80,7 @@ public class MapReduceExecutor
 
         if (task.getPartitioning().isPresent()) {
             reduceTaskCount = task.getReducers().or(inputTaskCount);
-            if (reduceTaskCount <= 0) {
+            if (inputTaskCount > 0 && reduceTaskCount <= 0) {
                 throw new ConfigException("Reducers must be larger than 1 if partition: is set");
             }
             outputTaskCount = reduceTaskCount;
