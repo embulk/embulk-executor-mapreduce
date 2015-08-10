@@ -78,7 +78,7 @@ public class MapReduceExecutor
         final int outputTaskCount;
         final int reduceTaskCount;
 
-        if (task.getPartitioning().isPresent()) {
+        if (task.getPartitioning().isPresent() && inputTaskCount > 0) { // here can disable partitioning and force set reduceTaskCount and outputTaskCount to 0 if inputTaskCount is 0
             reduceTaskCount = task.getReducers().or(inputTaskCount);
             if (reduceTaskCount <= 0) {
                 throw new ConfigException("Reducers must be larger than 1 if partition: is set");
