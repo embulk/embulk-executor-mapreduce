@@ -270,14 +270,17 @@ public class MapReduceExecutor
         try {
             job.submit();
 
-            boolean completed = false;
             TaskReportSet reportSet;
-            try {
-                reportSet = waitForJobCompletion(job, stateDir, state, modelManager);
-                completed = true;
-            } finally {
-                if (!completed) {
-                    EmbulkMapReduce.killJob(job);
+            try (KillJobShutdownHook shutdownHook = KillJobShutdownHook.register(job)) {
+                boolean completed = false;
+                try {
+                    reportSet = waitForJobCompletion(job, stateDir, state, modelManager);
+                    completed = true;
+                }
+                finally {
+                    if (!completed) {
+                        shutdownHook.kill();
+                    }
                 }
             }
 
@@ -497,5 +500,51 @@ public class MapReduceExecutor
             }
         }
         return builder.build();
+    }
+
+    private static class KillJobShutdownHook
+            extends Thread
+            implements AutoCloseable
+    {
+        public static KillJobShutdownHook register(Job job)
+        {
+            return new KillJobShutdownHook(job).register();
+        }
+
+        private final Job job;
+
+        private KillJobShutdownHook(Job job)
+        {
+            this.job = job;
+        }
+
+        public KillJobShutdownHook register()
+        {
+            Runtime.getRuntime().addShutdownHook(this);
+            return this;
+        }
+
+        @Override
+        public void run()
+        {
+            try {
+                kill();
+            }
+            catch (IOException ex) {
+                throw new RuntimeException(ex);
+            }
+        }
+
+        public void kill()
+                throws IOException
+        {
+            EmbulkMapReduce.killJob(job);
+        }
+
+        @Override
+        public void close()
+        {
+            Runtime.getRuntime().removeShutdownHook(this);
+        }
     }
 }
