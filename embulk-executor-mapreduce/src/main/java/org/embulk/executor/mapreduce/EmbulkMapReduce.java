@@ -167,6 +167,17 @@ public class EmbulkMapReduce
         }
     }
 
+    public static void killJob(final Job job) throws IOException
+    {
+        hadoopOperationWithRetry("killing job", new Callable<Void>() {
+            public Void call() throws IOException
+            {
+                job.killJob();
+                return null;
+            }
+        });
+    }
+
     public static JobStatus getJobStatus(final Job job) throws IOException
     {
         return hadoopOperationWithRetry("getting job status", new Callable<JobStatus>() {
