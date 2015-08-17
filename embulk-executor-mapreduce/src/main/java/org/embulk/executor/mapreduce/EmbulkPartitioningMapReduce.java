@@ -12,7 +12,7 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.mapreduce.Mapper;
 import org.apache.hadoop.mapreduce.Reducer;
 import org.embulk.config.ModelManager;
-import org.embulk.config.CommitReport;
+import org.embulk.config.TaskReport;
 import org.embulk.config.ConfigDiff;
 import org.embulk.config.TaskSource;
 import org.embulk.config.ConfigSource;
@@ -218,7 +218,7 @@ public class EmbulkPartitioningMapReduce
                     try {
                         if (!failed) {
                             output.finish();
-                            CommitReport report = output.commit();
+                            TaskReport report = output.commit();
                             handler.outputCommitted(report);
                         }
                     } finally {
@@ -266,7 +266,7 @@ public class EmbulkPartitioningMapReduce
 
         public void cleanup(TaskSource taskSource,
                 Schema schema, int taskCount,
-                List<CommitReport> successCommitReports)
+                List<TaskReport> successTaskReports)
         {
             // won't be called
             throw new RuntimeException("");
@@ -301,9 +301,9 @@ public class EmbulkPartitioningMapReduce
                 public void abort()
                 { }
 
-                public CommitReport commit()
+                public TaskReport commit()
                 {
-                    return Exec.newCommitReport();
+                    return Exec.newTaskReport();
                 }
             };
         }

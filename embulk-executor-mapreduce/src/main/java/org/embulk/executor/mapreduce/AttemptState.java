@@ -16,7 +16,7 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonValue;
 import org.apache.hadoop.mapreduce.TaskAttemptID;
 import org.embulk.config.ModelManager;
-import org.embulk.config.CommitReport;
+import org.embulk.config.TaskReport;
 
 public class AttemptState
 {
@@ -24,8 +24,8 @@ public class AttemptState
     private final Optional<Integer> inputTaskIndex;
     private final Optional<Integer> outputTaskIndex;
     private Optional<String> exception;
-    private Optional<CommitReport> inputCommitReport;
-    private Optional<CommitReport> outputCommitReport;
+    private Optional<TaskReport> inputTaskReport;
+    private Optional<TaskReport> outputTaskReport;
 
     public AttemptState(TaskAttemptID attemptId, Optional<Integer> inputTaskIndex, Optional<Integer> outputTaskIndex)
     {
@@ -40,12 +40,12 @@ public class AttemptState
             @JsonProperty("inputTaskIndex") Optional<Integer> inputTaskIndex,
             @JsonProperty("outputTaskIndex") Optional<Integer> outputTaskIndex,
             @JsonProperty("exception") Optional<String> exception,
-            @JsonProperty("inputCommitReport") Optional<CommitReport> inputCommitReport,
-            @JsonProperty("outputCommitReport") Optional<CommitReport> outputCommitReport)
+            @JsonProperty("inputTaskReport") Optional<TaskReport> inputTaskReport,
+            @JsonProperty("outputTaskReport") Optional<TaskReport> outputTaskReport)
     {
         this(TaskAttemptID.forName(attemptId),
                 inputTaskIndex, outputTaskIndex, exception,
-                inputCommitReport, outputCommitReport);
+                inputTaskReport, outputTaskReport);
     }
 
     public AttemptState(
@@ -53,15 +53,15 @@ public class AttemptState
             Optional<Integer> inputTaskIndex,
             Optional<Integer> outputTaskIndex,
             Optional<String> exception,
-            Optional<CommitReport> inputCommitReport,
-            Optional<CommitReport> outputCommitReport)
+            Optional<TaskReport> inputTaskReport,
+            Optional<TaskReport> outputTaskReport)
     {
         this.attemptId = attemptId;
         this.inputTaskIndex = inputTaskIndex;
         this.outputTaskIndex = outputTaskIndex;
         this.exception = exception;
-        this.inputCommitReport = inputCommitReport;
-        this.outputCommitReport = outputCommitReport;
+        this.inputTaskReport = inputTaskReport;
+        this.outputTaskReport = outputTaskReport;
     }
 
     @JsonIgnore
@@ -112,28 +112,28 @@ public class AttemptState
         return exception;
     }
 
-    @JsonProperty("inputCommitReport")
-    public Optional<CommitReport> getInputCommitReport()
+    @JsonProperty("inputTaskReport")
+    public Optional<TaskReport> getInputTaskReport()
     {
-        return inputCommitReport;
+        return inputTaskReport;
     }
 
-    @JsonProperty("outputCommitReport")
-    public Optional<CommitReport> getOutputCommitReport()
+    @JsonProperty("outputTaskReport")
+    public Optional<TaskReport> getOutputTaskReport()
     {
-        return outputCommitReport;
-    }
-
-    @JsonIgnore
-    public void setInputCommitReport(CommitReport inputCommitReport)
-    {
-        this.inputCommitReport = Optional.of(inputCommitReport);
+        return outputTaskReport;
     }
 
     @JsonIgnore
-    public void setOutputCommitReport(CommitReport outputCommitReport)
+    public void setInputTaskReport(TaskReport inputTaskReport)
     {
-        this.outputCommitReport = Optional.of(outputCommitReport);
+        this.inputTaskReport = Optional.of(inputTaskReport);
+    }
+
+    @JsonIgnore
+    public void setOutputTaskReport(TaskReport outputTaskReport)
+    {
+        this.outputTaskReport = Optional.of(outputTaskReport);
     }
 
     public void writeTo(OutputStream out, ModelManager modelManager) throws IOException
