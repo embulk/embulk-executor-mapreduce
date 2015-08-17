@@ -1,0 +1,14 @@
+exec:
+  type: mapreduce
+  config: {}
+  state_path: 'file:///tmp/embulk/'
+  job_name: embulk
+  partitioning:
+    type: timestamp
+    column: date_code
+    unit: hour
+in:
+  type: file
+  path_prefix: src/test/resources/fixtures/csv/
+out:
+  type: stdout

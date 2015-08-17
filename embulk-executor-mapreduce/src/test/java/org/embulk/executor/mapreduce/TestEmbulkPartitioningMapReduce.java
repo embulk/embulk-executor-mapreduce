@@ -1,138 +1,171 @@
 package org.embulk.executor.mapreduce;
 
+import com.google.common.base.Optional;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.io.DataInputBuffer;
 import org.apache.hadoop.io.IntWritable;
 import org.apache.hadoop.io.NullWritable;
-import org.apache.hadoop.mrunit.mapreduce.MapReduceDriver;
+import org.apache.hadoop.mapred.RawKeyValueIterator;
+import org.apache.hadoop.mapreduce.Counter;
+import org.apache.hadoop.mapreduce.MapContext;
+import org.apache.hadoop.mapreduce.Mapper;
+import org.apache.hadoop.mapreduce.ReduceContext;
+import org.apache.hadoop.mapreduce.Reducer;
+import org.apache.hadoop.mapreduce.StatusReporter;
+import org.apache.hadoop.mapreduce.TaskAttemptID;
+import org.apache.hadoop.mapreduce.counters.GenericCounter;
+import org.apache.hadoop.mapreduce.lib.map.WrappedMapper;
+import org.apache.hadoop.mapreduce.lib.reduce.WrappedReducer;
+import org.apache.hadoop.mapreduce.task.MapContextImpl;
+import org.apache.hadoop.mapreduce.task.ReduceContextImpl;
+import org.apache.hadoop.mapreduce.task.TaskAttemptContextImpl;
+import org.apache.hadoop.util.Progress;
 import org.embulk.EmbulkTestRuntime;
-import org.embulk.config.CommitReport;
-import org.embulk.executor.mapreduce.EmbulkMapReduce.AttemptStateUpdateHandler;
+import org.embulk.config.ConfigLoader;
+import org.embulk.config.ConfigSource;
+import org.embulk.config.TaskSource;
 import org.embulk.executor.mapreduce.EmbulkPartitioningMapReduce.EmbulkPartitioningMapper;
 import org.embulk.executor.mapreduce.EmbulkPartitioningMapReduce.EmbulkPartitioningReducer;
-import org.embulk.executor.mapreduce.EmbulkMapReduce.SessionRunner;
+import org.embulk.executor.mapreduce.MapReduceTestUtils.MockRecordWriter;
+import org.embulk.spi.Column;
+import org.embulk.spi.type.Types;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 
+import java.io.File;
 import java.io.IOException;
-
-import static org.apache.hadoop.mrunit.mapreduce.MapReduceDriver.newMapReduceDriver;
+import java.util.Arrays;
+import java.util.Iterator;
 
 public class TestEmbulkPartitioningMapReduce
 {
     @Rule
     public EmbulkTestRuntime runtime = new EmbulkTestRuntime();
+    private MapReduceTestUtils utils;
+    private Configuration conf;
 
-    private MapReduceDriver<IntWritable, NullWritable, BufferWritable, PageWritable, NullWritable, NullWritable> mapReduceDriver;
+    private MockRecordWriter recordWriter = new MockRecordWriter();
+
     @Before
-    public void createResources()
+    public void createUtilities()
+            throws Exception
     {
-        EmbulkPartitioningMapper mapper = new MockEmbulkPartitioningMapper();
-        EmbulkPartitioningReducer reducer = new MockEmbulkPartitioningReducer();
-        mapReduceDriver = newMapReduceDriver(mapper, reducer);
-    }
+        utils = new MapReduceTestUtils(runtime);
 
-    private void setConfigure(Configuration conf)
-    {
-        conf.set("embulk.mapreduce.systemConfig", "{}");
-        conf.set("embulk.mapreduce.stateDirectorypath", "/tmp/embulk/state");
-        conf.set("embulk.mapreduce.task",
-        "{" +
-           "\"Partitioning\":{\"type\":\"timestamp\",\"unit\":\"hour\",\"column\":\"ts\",\"unix_timestamp_unit\":\"sec\"}," +
-           "\"ExecConfig\":{" +
-              "\"type\":\"mapreduce\"," +
-              "\"config\":{},\"state_path\":\"/tmp/embulk/\"," +
-              "\"partitioning\":{\"type\":\"timestamp\",\"unit\":\"hour\",\"column\":\"ts\",\"unix_timestamp_unit\":\"sec\"}," +
-              "\"job_name\":\"embulk\"}," +
-           "\"JobName\":\"embulk\"," +
-           "\"StatePath\":\"/tmp/embulk/\"," +
-           "\"ProcessTask\":{" +
-              "\"inputType\":\"file\"," +
-              "\"outputType\":\"stdout\"," +
-              "\"filterTypes\":[]," +
-              "\"inputTask\":{" +
-                 "\"ParserTaskSource\":{\"SchemaConfig\":[{\"format\":\"%Y%m%d\",\"name\":\"ts\",\"type\":\"timestamp\"}],\"DefaultTimeZone\":\"UTC\"}," +
-                 "\"DecoderTaskSources\":[]," +
-                 "\"FileInputTaskSource\":{\"Files\":[\"src/test/resources/fixtures/csv/sample1.csv.gz\",\"src/test/resources/fixtures/csv/sample2.csv.gz\"],\"PathPrefix\":\"src/test/resources/fixtures/csv/\",\"LastPath\":null}," +
-                 "\"ParserConfig\":{\"type\":\"csv\",\"columns\":[{\"name\":\"date_code\",\"type\":\"timestamp\",\"format\":\"%Y%m%d\"}]}," +
-                 "\"DecoderConfigs\":[]}," +
-              "\"outputTask\":{\"TimeZone\":\"UTC\"}," +
-              "\"filterTasks\":[]," +
-              "\"schemas\":[[{\"index\":0,\"name\":\"ts\",\"type\":\"timestamp\"}]]," +
-              "\"executorSchema\":[{\"index\":0,\"name\":\"ts\",\"type\":\"timestamp\"}]," +
-              "\"executorTask\":{}}," +
-           "\"PartitioningTask\":{\"TargetColumn\":{\"index\":0,\"name\":\"ts\",\"type\":\"timestamp\"},\"UnixTimestamp\":\"sec\",\"TimeZone\":\"UTC\",\"Unit\":\"hour\",\"Column\":\"ts\"}," +
-           "\"Reducers\":null," +
-           "\"Config\":{}," +
-           "\"Libjars\":[]," +
-                "\"PartitioningType\":\"timestamp\"," +
-           "\"ConfigFiles\":[]" +
-        "}"
-        );
+        ConfigSource systemConfig = utils.systemConfig();
+        ConfigLoader loader = utils.configLoader();
+        ConfigSource config = utils.config(loader, "src/test/resources/config/partitioning_mapred_config.yml");
+        MapReduceExecutorTask task = utils.executorTask(config, loader, "src/test/resources/config/process_task.yml");
+        setPartitioningTaskSource(loader, task);
+
+        conf = utils.configuration(systemConfig, task);
     }
 
     @Test
-    public void testMapReduce()
-            throws Exception {
-        setConfigure(mapReduceDriver.getConfiguration());
+    public void checkEmbulkPartitioningMapper()
+            throws Exception
+    {
+        EmbulkPartitioningMapper mapper = new EmbulkPartitioningMapper();
+        Mapper<IntWritable, NullWritable, BufferWritable, PageWritable>.Context mapContext = newMapContext(conf, recordWriter);
 
-        mapReduceDriver
-                .withInput(new IntWritable(1), NullWritable.get())
-                .withInput(new IntWritable(2), NullWritable.get())
-                .withOutput(NullWritable.get(), NullWritable.get());
-
-        mapReduceDriver.run();
+        mapper.setup(mapContext);
+        mapper.map(new IntWritable(0), NullWritable.get(), mapContext);
+        mapper.map(new IntWritable(1), NullWritable.get(), mapContext);
     }
 
-    static class MockEmbulkPartitioningMapper extends EmbulkPartitioningMapper
+    @Test
+    public void checkEmbulkPartitioningReducer()
+            throws Exception
     {
-        @Override
-        protected void restorePluginLoadPaths()
-                throws IOException
-        { }
+        EmbulkPartitioningReducer reducer = new EmbulkPartitioningReducer();
+        Reducer<BufferWritable, PageWritable, NullWritable, NullWritable>.Context reduceContext = newReduceContext(conf);
 
-        @Override
-        protected AttemptStateUpdateHandler newAttemptStateUpdateHandler(SessionRunner runner, AttemptState attemptState)
-        {
-            return new MockAttemptStateUpdateHandler(runner, attemptState);
+        reducer.setup(reduceContext);
+        Iterator<MockRecordWriter.Pair> pairs = recordWriter.iterator();
+        while (pairs.hasNext()) {
+            MockRecordWriter.Pair p = pairs.next();
+            reducer.reduce(p.getBuffer(), Arrays.asList(p.getPage()), reduceContext);
         }
     }
 
-    static class MockEmbulkPartitioningReducer
-            extends EmbulkPartitioningReducer
-    {
-        @Override
-        protected void restorePluginLoadPaths()
-                throws IOException
-        { }
+    private void setPartitioningTaskSource(ConfigLoader loader, MapReduceExecutorTask execTask)
+            throws IOException {
+        ConfigSource config = loader.fromYamlFile(new File("src/test/resources/config/partitioning_task.yml"));
+        TimestampPartitioning.PartitioningTask task = config.loadConfig(TimestampPartitioning.PartitioningTask.class);
+        task.setTargetColumn(new Column(0, "date_code", Types.TIMESTAMP));
+        TaskSource t = task.dump();
 
-        @Override
-        protected AttemptStateUpdateHandler newAttemptStateUpdateHandler(SessionRunner runner, AttemptState attemptState)
-        {
-            return new MockAttemptStateUpdateHandler(runner, attemptState);
-        }
+        execTask.setPartitioningType(Optional.of("timestamp"));
+        execTask.setPartitioningTask(Optional.of(t));
     }
 
-    static class MockAttemptStateUpdateHandler
-            extends AttemptStateUpdateHandler
+    private Mapper<IntWritable, NullWritable, BufferWritable, PageWritable>.Context newMapContext(
+            Configuration conf, MockRecordWriter recordWriter)
     {
-        public MockAttemptStateUpdateHandler(SessionRunner runner, AttemptState state) {
-            super(runner, state);
-        }
-
-        @Override
-        public void started()
-        { }
-
-        @Override
-        public void inputCommitted(CommitReport report)
-        { }
-
-        @Override
-        public void outputCommitted(CommitReport report)
-        { }
-
-        public void setException(Throwable ex) throws IOException
-        { }
+        TaskAttemptID taskID = TaskAttemptID.forName("attempt_200707121733_0003_m_000005_0");
+        StatusReporter reporter = new TaskAttemptContextImpl.DummyReporter();
+        EmbulkInputSplit inputSplit = newInputSplit();
+        EmbulkRecordReader recordReader = newRecordReader(inputSplit);
+        MapContext<IntWritable, NullWritable, BufferWritable, PageWritable> mapContext =
+                new MapContextImpl<>(conf, taskID, recordReader, recordWriter, null, reporter, inputSplit);
+        Mapper<IntWritable, NullWritable, BufferWritable, PageWritable>.Context context =
+                new WrappedMapper<IntWritable, NullWritable, BufferWritable, PageWritable>().getMapContext(mapContext);
+        return context;
     }
+
+    private Reducer<BufferWritable, PageWritable, NullWritable, NullWritable>.Context newReduceContext(Configuration conf)
+            throws IOException, InterruptedException
+    {
+        TaskAttemptID taskID = TaskAttemptID.forName("attempt_200707121733_0003_r_000005_0");
+        StatusReporter reporter = new TaskAttemptContextImpl.DummyReporter();
+        RawKeyValueIterator rawKeyValueIterator = new RawKeyValueIterator() {
+            @Override
+            public DataInputBuffer getKey() throws IOException {
+                return null;
+            }
+
+            @Override
+            public DataInputBuffer getValue() throws IOException {
+                return null;
+            }
+
+            @Override
+            public boolean next() throws IOException {
+                return true;
+            }
+
+            @Override
+            public void close() throws IOException {
+
+            }
+
+            @Override
+            public Progress getProgress() {
+                return null;
+            }
+        };
+        ReduceContext<BufferWritable, PageWritable, NullWritable, NullWritable> reduceContext =
+                new ReduceContextImpl<>(conf, taskID, rawKeyValueIterator, newDummyCounter(), newDummyCounter(),
+                        null, null, reporter, null, BufferWritable.class, PageWritable.class);
+        Reducer<BufferWritable, PageWritable, NullWritable, NullWritable>.Context context =
+                new WrappedReducer<BufferWritable, PageWritable, NullWritable, NullWritable>().getReducerContext(reduceContext);
+        return context;
+    }
+
+    private Counter newDummyCounter()
+    {
+        return new GenericCounter("", "");
+    }
+    private EmbulkInputSplit newInputSplit()
+    {
+        return new EmbulkInputSplit();
+    }
+
+    private EmbulkRecordReader newRecordReader(EmbulkInputSplit split)
+    {
+        return new EmbulkRecordReader(split);
+    }
+
+
 }

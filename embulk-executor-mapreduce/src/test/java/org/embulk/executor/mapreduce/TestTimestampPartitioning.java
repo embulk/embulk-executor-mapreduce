@@ -148,4 +148,76 @@ public class TestTimestampPartitioning
             assertFalse(pks.get(i).equals(pks.get(i+4))); // long(tw) != long (tw+3600)
         }
     }
+
+    @Test
+    public void checkUnit()
+    {
+        long hourlyTimeWindow = System.currentTimeMillis() / 1000 / 3600 * 3600;
+        long dailyTimeWindow = System.currentTimeMillis() / 1000 / 86400 * 86600;
+
+        // hour
+        {
+            assertEquals(Unit.HOUR, Unit.of("hour"));
+            assertTrue(Unit.HOUR.utcPartition(hourlyTimeWindow) == Unit.HOUR.utcPartition(hourlyTimeWindow + 1));
+            assertTrue(Unit.HOUR.utcPartition(hourlyTimeWindow) != Unit.HOUR.utcPartition(hourlyTimeWindow + 3600));
+        }
+
+        // day
+        {
+            assertEquals(Unit.DAY, Unit.of("day"));
+            assertTrue(Unit.DAY.utcPartition(dailyTimeWindow) == Unit.DAY.utcPartition(dailyTimeWindow + 1));
+            assertTrue(Unit.DAY.utcPartition(dailyTimeWindow) != Unit.DAY.utcPartition(dailyTimeWindow + 86400));
+        }
+
+        // invalid_unit
+        {
+            try {
+                Unit.of("invalid_unit");
+                fail();
+            } catch (Exception e) {
+                assertTrue(e instanceof ConfigException);
+            }
+        }
+    }
+
+    @Test
+    public void checkUnixTimestampUnit()
+    {
+        long currentNano = System.nanoTime();
+        long currentSec = currentNano / 1000000000;
+
+        // sec
+        {
+            assertEquals(UnixTimestampUnit.SEC, UnixTimestampUnit.of("sec"));
+            assertEquals(currentSec, UnixTimestampUnit.SEC.toSeconds(currentNano / 1000000000));
+        }
+
+        // milli
+        {
+            assertEquals(UnixTimestampUnit.MILLI, UnixTimestampUnit.of("milli"));
+            assertEquals(currentSec, UnixTimestampUnit.MILLI.toSeconds(currentNano / 1000000));
+        }
+
+        // micro
+        {
+            assertEquals(UnixTimestampUnit.MICRO, UnixTimestampUnit.of("micro"));
+            assertEquals(currentSec, UnixTimestampUnit.MICRO.toSeconds(currentNano / 1000));
+        }
+
+        // nano
+        {
+            assertEquals(UnixTimestampUnit.NANO, UnixTimestampUnit.of("nano"));
+            assertEquals(currentSec, UnixTimestampUnit.NANO.toSeconds(currentNano));
+        }
+
+        // invalid_unit
+        {
+            try {
+                UnixTimestampUnit.of("invalid_unit");
+                fail();
+            } catch (Exception e) {
+                assertTrue(e instanceof ConfigException);
+            }
+        }
+    }
 }
