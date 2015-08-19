@@ -2,6 +2,7 @@ package org.embulk.executor.mapreduce;
 
 import java.util.List;
 import java.util.ArrayList;
+import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.io.File;
@@ -10,6 +11,7 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.EOFException;
 import java.io.InterruptedIOException;
+import java.lang.reflect.Method;
 import java.lang.reflect.InvocationTargetException;
 import com.google.inject.Injector;
 import com.google.common.base.Optional;
@@ -35,7 +37,8 @@ import org.apache.hadoop.mapreduce.MRConfig;
 import org.embulk.config.ModelManager;
 import org.embulk.config.ConfigSource;
 import org.embulk.config.ConfigLoader;
-import org.embulk.config.CommitReport;
+import org.embulk.config.DataSourceImpl;
+import org.embulk.config.TaskReport;
 import org.embulk.spi.BufferAllocator;
 import org.embulk.spi.Exec;
 import org.embulk.spi.ExecAction;
@@ -44,7 +47,7 @@ import org.embulk.spi.ProcessTask;
 import org.embulk.spi.util.Executors;
 import org.embulk.spi.util.RetryExecutor.Retryable;
 import org.embulk.spi.util.RetryExecutor.RetryGiveupException;
-import org.embulk.EmbulkService;
+import org.embulk.EmbulkEmbed;
 import org.slf4j.Logger;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
@@ -52,6 +55,7 @@ import static org.embulk.spi.util.RetryExecutor.retryExecutor;
 
 public class EmbulkMapReduce
 {
+    private static final String EMBULK_FACTORY_CLASS = "embulk_factory_class";
     private static final String SYSTEM_CONFIG_SERVICE_CLASS = "mapreduce_service_class";
 
     private static final String CK_SYSTEM_CONFIG = "embulk.mapreduce.systemConfig";
@@ -111,29 +115,41 @@ public class EmbulkMapReduce
                 config.get(CK_TASK));
     }
 
-    public static Injector newEmbulkInstance(Configuration config)
+    public static EmbulkEmbed.Bootstrap newEmbulkBootstrap(Configuration config)
     {
         ConfigSource systemConfig = getSystemConfig(config);
-        String serviceClassName = systemConfig.get(String.class, SYSTEM_CONFIG_SERVICE_CLASS, "org.embulk.EmbulkService");
+
+        // for warnings of old versions
+        if (!systemConfig.get(String.class, SYSTEM_CONFIG_SERVICE_CLASS, "org.embulk.EmbulkService").equals("org.embulk.EmbulkService")) {
+            throw new RuntimeException("System config 'mapreduce_service_class' is not supported any more. Please use 'embulk_factory_class' instead");
+        }
+
+        String factoryClassName = systemConfig.get(String.class, EMBULK_FACTORY_CLASS, DefaultEmbulkFactory.class.getName());
 
         try {
-            Object obj;
-            if (serviceClassName.equals("org.embulk.EmbulkService")) {
-                obj = new EmbulkService(systemConfig);
-            } else {
-                Class<?> serviceClass = Class.forName(serviceClassName);
-                obj = serviceClass.getConstructor(ConfigSource.class).newInstance(systemConfig);
+            Class<?> factoryClass = Class.forName(factoryClassName);
+            Object factory = factoryClass.newInstance();
+
+            Object bootstrap;
+            try {
+                // factory.bootstrap(ConfigSource masterSystemConfig, ConfigSource executorParams)
+                Method method = factoryClass.getMethod("bootstrap", ConfigSource.class, ConfigSource.class);
+                Map<String, String> hadoopConfig = config.getValByRegex("");
+                ConfigSource executorParams = new DataSourceImpl(new ModelManager(null, new ObjectMapper())).set("hadoopConfig", hadoopConfig).getNested("hadoopConfig");  // TODO add a method to embulk that creates an empty DataSource instance
+                bootstrap = method.invoke(factory, systemConfig, executorParams);
+            }
+            catch (NoSuchMethodException ex) {
+                // factory.bootstrap(ConfigSource masterSystemConfig)
+                bootstrap = factoryClass.getMethod("bootstrap", ConfigSource.class).invoke(factory, systemConfig);
             }
 
-            if (obj instanceof EmbulkService) {
-                return ((EmbulkService) obj).getInjector();
-            } else {
-                return (Injector) obj.getClass().getMethod("getInjector").invoke(obj);
-            }
+            return (EmbulkEmbed.Bootstrap) bootstrap;
 
-        } catch (InvocationTargetException ex) {
+        }
+        catch (InvocationTargetException ex) {
             throw Throwables.propagate(ex.getCause());
-        } catch (ClassNotFoundException | NoSuchMethodException | InstantiationException | IllegalAccessException | IllegalArgumentException ex) {
+        }
+        catch (ClassNotFoundException | NoSuchMethodException | InstantiationException | IllegalAccessException | IllegalArgumentException ex) {
             throw Throwables.propagate(ex);
         }
     }
@@ -377,8 +393,7 @@ public class EmbulkMapReduce
     public static class SessionRunner
     {
         private final Configuration config;
-        private final Injector injector;
-        private final ModelManager modelManager;
+        private final EmbulkEmbed embed;
         private final MapReduceExecutorTask task;
         private final ExecSession session;
         private final File localGemPath;
@@ -386,10 +401,9 @@ public class EmbulkMapReduce
         public SessionRunner(TaskAttemptContext context)
         {
             this.config = context.getConfiguration();
-            this.injector = newEmbulkInstance(context.getConfiguration());
-            this.modelManager = injector.getInstance(ModelManager.class);
-            this.task = getExecutorTask(injector, context.getConfiguration());
-            this.session = ExecSession.builder(injector).fromExecConfig(task.getExecConfig()).build();
+            this.embed = newEmbulkBootstrap(context.getConfiguration()).initialize();  // TODO use initializeCloseable?
+            this.task = getExecutorTask(embed.getInjector(), context.getConfiguration());
+            this.session = ExecSession.builder(embed.getInjector()).fromExecConfig(task.getExecConfig()).build();
 
             try {
                 LocalDirAllocator localDirAllocator = new LocalDirAllocator(MRConfig.LOCAL_DIR);
@@ -403,7 +417,7 @@ public class EmbulkMapReduce
         public PluginArchive readPluginArchive() throws IOException
         {
             localGemPath.mkdirs();
-            return EmbulkMapReduce.readPluginArchive(localGemPath, config, getStateDirectoryPath(config), modelManager);
+            return EmbulkMapReduce.readPluginArchive(localGemPath, config, getStateDirectoryPath(config), embed.getModelManager());
         }
 
         public Configuration getConfiguration()
@@ -413,17 +427,17 @@ public class EmbulkMapReduce
 
         public ModelManager getModelManager()
         {
-            return modelManager;
+            return embed.getModelManager();
         }
 
         public BufferAllocator getBufferAllocator()
         {
-            return injector.getInstance(BufferAllocator.class);
+            return embed.getBufferAllocator();
         }
 
         public ScriptingContainer getScriptingContainer()
         {
-            return injector.getInstance(ScriptingContainer.class);
+            return embed.getInjector().getInstance(ScriptingContainer.class);
         }
 
         public MapReduceExecutorTask getMapReduceExecutorTask()
@@ -480,9 +494,9 @@ public class EmbulkMapReduce
         }
 
         @Override
-        public void inputCommitted(CommitReport report)
+        public void inputCommitted(TaskReport report)
         {
-            state.setInputCommitReport(report);
+            state.setInputTaskReport(report);
             try {
                 writeAttemptStateFile(config, stateDir, state, modelManager);
             } catch (IOException e) {
@@ -491,9 +505,9 @@ public class EmbulkMapReduce
         }
 
         @Override
-        public void outputCommitted(CommitReport report)
+        public void outputCommitted(TaskReport report)
         {
-            state.setOutputCommitReport(report);
+            state.setOutputTaskReport(report);
             try {
                 writeAttemptStateFile(config, stateDir, state, modelManager);
             } catch (IOException e) {

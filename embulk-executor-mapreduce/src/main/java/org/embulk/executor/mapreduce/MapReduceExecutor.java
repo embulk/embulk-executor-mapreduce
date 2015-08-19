@@ -40,7 +40,7 @@ import org.apache.hadoop.mapreduce.MRJobConfig;
 import org.apache.hadoop.mapreduce.lib.output.NullOutputFormat;
 import org.embulk.exec.ForSystemConfig;
 import org.embulk.config.ConfigSource;
-import org.embulk.config.CommitReport;
+import org.embulk.config.TaskReport;
 import org.embulk.config.ConfigException;
 import org.embulk.config.TaskSource;
 import org.embulk.config.ModelManager;
@@ -381,15 +381,15 @@ public class MapReduceExecutor
     private static void updateTaskState(TaskState state, AttemptState attempt, boolean isInput)
     {
         state.start();
-        Optional<CommitReport> commitReport = isInput ? attempt.getInputCommitReport() : attempt.getOutputCommitReport();
-        boolean committed = commitReport.isPresent();
+        Optional<TaskReport> taskReport = isInput ? attempt.getInputTaskReport() : attempt.getOutputTaskReport();
+        boolean committed = taskReport.isPresent();
         if (attempt.getException().isPresent()) {
             if (!state.isCommitted()) {
                 state.setException(new RemoteTaskFailedException(attempt.getException().get()));
             }
         }
-        if (commitReport.isPresent()) {
-            state.setCommitReport(commitReport.get());
+        if (taskReport.isPresent()) {
+            state.setTaskReport(taskReport.get());
             state.finish();
         }
     }
@@ -436,12 +436,12 @@ public class MapReduceExecutor
 
         public boolean isInputCommitted()
         {
-            return attemptState != null && attemptState.getInputCommitReport().isPresent();
+            return attemptState != null && attemptState.getInputTaskReport().isPresent();
         }
 
         public boolean isOutputCommitted()
         {
-            return attemptState != null && attemptState.getOutputCommitReport().isPresent();
+            return attemptState != null && attemptState.getOutputTaskReport().isPresent();
         }
 
         public TaskAttemptID getTaskAttempId()
