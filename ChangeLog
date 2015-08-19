@@ -1,3 +1,11 @@
+Release 0.2.0 - 2015-08-18
+
+* Upgraded embulk to v0.7.0
+* Support for "mapreduce_service_class" system config is removed.
+* Added support for "embulk_factory_class" system config.
+* Enables JSR 250 Lifecycle support
+
+
 Release 0.1.5 - 2015-07-28
 
 * Fixed unexpected IllegalStateException and NullPointerException
