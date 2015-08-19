@@ -133,9 +133,9 @@ public class EmbulkMapReduce
             Object bootstrap;
             try {
                 // factory.bootstrap(ConfigSource masterSystemConfig, ConfigSource executorParams)
-                Method method = factoryClass.getMethod("bootstrap", ConfigSource.class);
+                Method method = factoryClass.getMethod("bootstrap", ConfigSource.class, ConfigSource.class);
                 Map<String, String> hadoopConfig = config.getValByRegex("");
-                ConfigSource executorParams = new DataSourceImpl(new ModelManager(null, new ObjectMapper())).set("hadoopConfig",hadoopConfig).getNested("hadoopConfig");  // TODO add a method to embulk that creates an empty DataSource instance
+                ConfigSource executorParams = new DataSourceImpl(new ModelManager(null, new ObjectMapper())).set("hadoopConfig", hadoopConfig).getNested("hadoopConfig");  // TODO add a method to embulk that creates an empty DataSource instance
                 bootstrap = method.invoke(factory, systemConfig, executorParams);
             }
             catch (NoSuchMethodException ex) {
@@ -145,9 +145,11 @@ public class EmbulkMapReduce
 
             return (EmbulkEmbed.Bootstrap) bootstrap;
 
-        } catch (InvocationTargetException ex) {
+        }
+        catch (InvocationTargetException ex) {
             throw Throwables.propagate(ex.getCause());
-        } catch (ClassNotFoundException | NoSuchMethodException | InstantiationException | IllegalAccessException | IllegalArgumentException ex) {
+        }
+        catch (ClassNotFoundException | NoSuchMethodException | InstantiationException | IllegalAccessException | IllegalArgumentException ex) {
             throw Throwables.propagate(ex);
         }
     }
