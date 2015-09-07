@@ -1,0 +1,12 @@
+column: date_code
+Column: date_code
+unit: hour
+Unit: hour
+timezone: UTC
+TimeZone: UTC
+unix_timestamp_unit: sec
+UnixTimestamp: sec
+TargetColumn:
+  index: 0
+  name: date_code
+  type: timestamp

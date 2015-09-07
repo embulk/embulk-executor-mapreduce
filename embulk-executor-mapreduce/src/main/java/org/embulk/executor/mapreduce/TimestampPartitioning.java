@@ -1,5 +1,6 @@
 package org.embulk.executor.mapreduce;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.joda.time.DateTimeZone;
 import com.google.common.base.Optional;
 import org.embulk.config.Config;
@@ -40,7 +41,8 @@ public class TimestampPartitioning
         public void setTargetColumn(Column column);
     }
 
-    private static enum Unit
+    @VisibleForTesting
+    static enum Unit
     {
         HOUR(60*60),
         DAY(24*60*60);
@@ -70,12 +72,13 @@ public class TimestampPartitioning
             //case "year": return YEAR;
             default:
                 throw new ConfigException(
-                        String.format("Unknown unit '%s'. Supported units are hour and day"));
+                        String.format("Unknown unit '%s'. Supported units are hour and day", s));
             }
         }
     }
 
-    private static enum UnixTimestampUnit
+    @VisibleForTesting
+    static enum UnixTimestampUnit
     {
         SEC(1),
         MILLI(1000),
@@ -103,7 +106,7 @@ public class TimestampPartitioning
             case "nano": return NANO;
             default:
                 throw new ConfigException(
-                        String.format("Unknown unix_timestamp_unit '%s'. Supported units are sec, milli, micro, and nano"));
+                        String.format("Unknown unix_timestamp_unit '%s'. Supported units are sec, milli, micro, and nano", s));
             }
         }
     }
@@ -253,7 +256,8 @@ public class TimestampPartitioning
         }
     }
 
-    private static class TimestampPartitioner
+    @VisibleForTesting
+    static class TimestampPartitioner
             extends AbstractTimestampPartitioner
     {
         public TimestampPartitioner(Column column, Unit unit)
@@ -269,7 +273,8 @@ public class TimestampPartitioning
         }
     }
 
-    private static class LongUnixTimestampPartitioner
+    @VisibleForTesting
+    static class LongUnixTimestampPartitioner
             extends AbstractTimestampPartitioner
     {
         private final UnixTimestampUnit unixTimestampUnit;

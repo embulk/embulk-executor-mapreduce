@@ -17,9 +17,9 @@ subprojects {
     //apply plugin: 'findbugs'
     //apply plugin: 'jacoco'
     apply plugin: 'com.github.jruby-gradle.base'
+    apply plugin: 'jacoco'
 
     repositories {
-        mavenLocal()
         jcenter()
     }
 
@@ -30,11 +30,24 @@ subprojects {
         compile.exclude group: 'xerces'
     }
 
+    jacoco {
+        reportsDir = file("$buildDir/jacoco_reports")
+    }
+
+    test {
+        finalizedBy jacocoTestReport // jacocoTestReport is executed after test task.
+    }
+
     dependencies {
-        compile  'org.embulk:embulk-core:0.7.0'
-        provided 'org.embulk:embulk-core:0.7.0'
+        compile  'org.embulk:embulk-core:0.7.4'
+        provided 'org.embulk:embulk-core:0.7.4'
+        compile  'org.embulk:embulk-standards:0.7.4'
+        provided 'org.embulk:embulk-standards:0.7.4'
         compile 'org.apache.hadoop:hadoop-client:2.6.0'
+
         testCompile 'junit:junit:4.+'
+        testCompile 'org.embulk:embulk-core:0.7.4:tests'
+        testCompile 'org.apache.mrunit:mrunit:1.1.0:hadoop2'
     }
 
     tasks.withType(JavaCompile) {

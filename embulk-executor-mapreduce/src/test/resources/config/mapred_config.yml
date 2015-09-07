@@ -1,0 +1,10 @@
+exec:
+  type: mapreduce
+  config: {}
+  state_path: 'file:///tmp/embulk/'
+  job_name: embulk
+in:
+  type: file
+  path_prefix: src/test/resources/fixtures/csv/
+out:
+  type: null

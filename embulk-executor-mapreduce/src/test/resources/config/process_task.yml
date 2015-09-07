@@ -1,0 +1,35 @@
+executorTask: {}
+inputType: file
+inputTask:
+  FileInputTaskSource:
+    Files: ['src/test/resources/fixtures/csv/sample1.csv.gz','src/test/resources/fixtures/csv/sample2.csv.gz']
+    PathPrefix: 'src/test/resources/fixtures/csv/'
+    LastPath: null
+  ParserConfig:
+    type: csv
+    columns: [{name: c0, type: timestamp, format: '%Y%m%d'}, {name: c1, type: long}, {name: c2, type: string}, {name: c3, type: string}]
+  ParserTaskSource:
+    HeaderLine: null
+    DelimiterChar: ','
+    MaxQuotedSizeLimit: 131072
+    TrimIfNotQuoted: false
+    AllowOptionalColumns: false
+    NullString: null
+    EscapeChar: '"'
+    AllowExtraColumns: false
+    Newline: CRLF
+    Charset: UTF-8
+    QuoteChar: '"'
+    SkipHeaderLines: 0
+    CommentLineMarker: null
+    DefaultTimestampFormat: '%Y-%m-%d %H:%M:%S.%N %z'
+    DefaultTimeZone: UTC
+    SchemaConfig: [{name: c0, type: timestamp, format: '%Y%m%d'}, {name: c1, type: long}, {name: c2, type: string}, {name: c3, type: string}]
+  DecoderConfigs: [{type: gzip}]
+  DecoderTaskSources: [{type: gzip}]
+filterTypes: []
+filterTasks: []
+outputType: 'null'
+outputTask: {TimeZone: 'UTC'}
+schemas: [[{index: 0, name: c0, type: timestamp}, {index: 1, name: c1, type: long}, {index: 2, name: c2, type: string}, {index: 3, name: c3, type: string}]]
+executorSchema: [{index: 0, name: c0, type: timestamp}, {index: 1, name: c1, type: long}, {index: 2, name: c2, type: string}, {index: 3, name: c3, type: string}]
