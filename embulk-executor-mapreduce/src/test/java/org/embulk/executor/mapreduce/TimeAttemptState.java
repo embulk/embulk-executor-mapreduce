@@ -32,8 +32,8 @@ public class TimeAttemptState
 
         AttemptState attemptState = new AttemptState(attemptId, Optional.of(inputTaskIndex), Optional.of(outputTaskIndex));
         attemptState.setException(ex);
-        attemptState.setInputCommitReport(runtime.getExec().newCommitReport());
-        attemptState.setOutputCommitReport(runtime.getExec().newCommitReport());
+        attemptState.setInputTaskReport(runtime.getExec().newTaskReport());
+        attemptState.setOutputTaskReport(runtime.getExec().newTaskReport());
 
         try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             attemptState.writeTo(out, runtime.getModelManager());
@@ -50,8 +50,8 @@ public class TimeAttemptState
         assertEquals(s1.getInputTaskIndex(), s2.getInputTaskIndex());
         assertEquals(s1.getOutputTaskIndex(), s2.getOutputTaskIndex());
         assertEquals(s1.getException(), s2.getException());
-        assertEquals(s1.getInputCommitReport(), s2.getInputCommitReport());
-        assertEquals(s1.getOutputCommitReport(), s2.getOutputCommitReport());
+        assertEquals(s1.getInputTaskReport(), s2.getInputTaskReport());
+        assertEquals(s1.getOutputTaskReport(), s2.getOutputTaskReport());
     }
 
     @Test

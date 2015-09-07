@@ -39,14 +39,14 @@ subprojects {
     }
 
     dependencies {
-        compile  'org.embulk:embulk-core:0.7.0'
-        provided 'org.embulk:embulk-core:0.7.0'
-        compile  'org.embulk:embulk-standards:0.7.0'
-        provided 'org.embulk:embulk-standards:0.7.0'
+        compile  'org.embulk:embulk-core:0.7.4'
+        provided 'org.embulk:embulk-core:0.7.4'
+        compile  'org.embulk:embulk-standards:0.7.4'
+        provided 'org.embulk:embulk-standards:0.7.4'
         compile 'org.apache.hadoop:hadoop-client:2.6.0'
 
         testCompile 'junit:junit:4.+'
-        testCompile 'org.embulk:embulk-core:0.6.18:tests'
+        testCompile 'org.embulk:embulk-core:0.7.4:tests'
         testCompile 'org.apache.mrunit:mrunit:1.1.0:hadoop2'
     }
 
