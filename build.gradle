@@ -23,6 +23,9 @@ subprojects {
         jcenter()
     }
 
+    sourceCompatibility = 1.7
+    targetCompatibility = 1.7
+
     configurations {
         provided
         // exclude xercesImpl and xml-apis jars that causes a problem with javax.xml.parsers.DocumentBuilderFactory.
