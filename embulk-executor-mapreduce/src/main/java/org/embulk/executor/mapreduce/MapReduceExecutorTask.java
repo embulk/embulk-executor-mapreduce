@@ -31,6 +31,10 @@ public interface MapReduceExecutorTask
     @ConfigDefault("[]")
     public List<String> getLibjars();
 
+    @Config("excluded_jars")
+    @ConfigDefault("[]")
+    public List<String> getExcludedjars();
+
     @Config("state_path")
     @ConfigDefault("\"/tmp/embulk\"")
     public String getStatePath();
