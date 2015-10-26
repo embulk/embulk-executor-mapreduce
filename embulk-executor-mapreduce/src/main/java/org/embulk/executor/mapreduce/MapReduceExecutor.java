@@ -239,7 +239,7 @@ public class MapReduceExecutor
         }
 
         // jar files
-        Iterable<Path> jars = collectJars(task.getLibjars());
+        Iterable<Path> jars = collectJars(task.getLibjars(), task.getExcludedjars());
         job.getConfiguration().set("tmpjars", StringUtils.join(",", jars));
 
         job.setInputFormatClass(EmbulkInputFormat.class);
@@ -304,14 +304,18 @@ public class MapReduceExecutor
         }
     }
 
-    private static Iterable<Path> collectJars(List<String> extraJars)
+    private static Iterable<Path> collectJars(List<String> extraJars, List<String> excludedJars)
     {
         Set<Path> set = new HashSet<Path>();
 
-        collectURLClassLoaderJars(set, Exec.class.getClassLoader());
-        collectURLClassLoaderJars(set, MapReduceExecutor.class.getClassLoader());
+        collectURLClassLoaderJars(set, Exec.class.getClassLoader(), excludedJars);
+        collectURLClassLoaderJars(set, MapReduceExecutor.class.getClassLoader(), excludedJars);
 
         for (String extraJar : extraJars) {
+            if (isExcludedJar(extraJar, excludedJars)) {
+                continue;
+            }
+
             URI uri;
             try {
                 uri = new URI(extraJar);
@@ -328,12 +332,22 @@ public class MapReduceExecutor
         return set;
     }
 
-    private static void collectURLClassLoaderJars(Set<Path> set, ClassLoader cl)
+    private static boolean isExcludedJar(String jarName, List<String> excludedJars)
+    {
+        for (String excludedJar : excludedJars) {
+            if (jarName.endsWith(excludedJar)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static void collectURLClassLoaderJars(Set<Path> set, ClassLoader cl, List<String> excludedJars)
     {
         if (cl instanceof URLClassLoader) {
             for (URL url : ((URLClassLoader) cl).getURLs()) {
                 File file = new File(url.getPath());
-                if (file.isFile()) {
+                if (file.isFile() && !isExcludedJar(file.getName(), excludedJars)) {
                     // TODO log if not found
                     // TODO debug logging
                     set.add(localFileToLocalPath(file));
