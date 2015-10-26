@@ -269,29 +269,22 @@ public class MapReduceExecutor
 
         try {
             job.submit();
-            TaskReportSet reportSet = new TaskReportSet(job.getJobID());
 
-            int interval = Job.getCompletionPollInterval(job.getConfiguration());
-            while (true) {
-                EmbulkMapReduce.JobStatus status = EmbulkMapReduce.getJobStatus(job);
-                if (status.isComplete()) {
-                    break;
+            TaskReportSet reportSet;
+            try (KillJobShutdownHook shutdownHook = KillJobShutdownHook.register(job)) {
+                boolean completed = false;
+                try {
+                    reportSet = waitForJobCompletion(job, stateDir, state, modelManager);
+                    completed = true;
                 }
-                log.info(String.format("map %.1f%% reduce %.1f%%",
-                            status.getMapProgress() * 100, status.getReduceProgress() * 100));
-
-                //if (job.getState() == JobStatus.State.PREP) {
-                //    continue;
-                //}
-                Thread.sleep(interval);
-
-                updateProcessState(job, reportSet, stateDir, state, modelManager, true);
+                finally {
+                    if (!completed) {
+                        shutdownHook.kill();
+                    }
+                }
             }
 
-            EmbulkMapReduce.JobStatus status = EmbulkMapReduce.getJobStatus(job);
-            log.info(String.format("map %.1f%% reduce %.1f%%",
-                        status.getMapProgress() * 100, status.getReduceProgress() * 100));
-            // Here sets inProgress=false to updateProcessState method to tell that race
+            // Here calls updateProcessState with inProgress=false because race
             // condition of AttemptReport.readFrom and .writeTo does not happen here.
             updateProcessState(job, reportSet, stateDir, state, modelManager, false);
 
@@ -302,6 +295,32 @@ public class MapReduceExecutor
         } catch (IOException | InterruptedException | ClassNotFoundException e) {
             throw Throwables.propagate(e);
         }
+    }
+
+    private TaskReportSet waitForJobCompletion(Job job,
+            Path stateDir, ProcessState state, ModelManager modelManager)
+        throws IOException, InterruptedException
+    {
+        TaskReportSet reportSet = new TaskReportSet(job.getJobID());
+
+        int interval = Job.getCompletionPollInterval(job.getConfiguration());
+        while (true) {
+            EmbulkMapReduce.JobStatus status = EmbulkMapReduce.getJobStatus(job);
+            log.info(String.format("map %.1f%% reduce %.1f%%",
+                        status.getMapProgress() * 100, status.getReduceProgress() * 100));
+            if (status.isComplete()) {
+                break;
+            }
+
+            //if (job.getState() == JobStatus.State.PREP) {
+            //    continue;
+            //}
+            Thread.sleep(interval);
+
+            updateProcessState(job, reportSet, stateDir, state, modelManager, true);
+        }
+
+        return reportSet;
     }
 
     private static Iterable<Path> collectJars(List<String> extraJars)
@@ -481,5 +500,51 @@ public class MapReduceExecutor
             }
         }
         return builder.build();
+    }
+
+    private static class KillJobShutdownHook
+            extends Thread
+            implements AutoCloseable
+    {
+        public static KillJobShutdownHook register(Job job)
+        {
+            return new KillJobShutdownHook(job).register();
+        }
+
+        private final Job job;
+
+        private KillJobShutdownHook(Job job)
+        {
+            this.job = job;
+        }
+
+        public KillJobShutdownHook register()
+        {
+            Runtime.getRuntime().addShutdownHook(this);
+            return this;
+        }
+
+        @Override
+        public void run()
+        {
+            try {
+                kill();
+            }
+            catch (IOException ex) {
+                throw new RuntimeException(ex);
+            }
+        }
+
+        public void kill()
+                throws IOException
+        {
+            EmbulkMapReduce.killJob(job);
+        }
+
+        @Override
+        public void close()
+        {
+            Runtime.getRuntime().removeShutdownHook(this);
+        }
     }
 }
