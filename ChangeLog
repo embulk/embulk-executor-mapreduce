@@ -1,3 +1,8 @@
+Release 0.2.1 - 2015-10-26
+
+* Added exclude_jars option
+
+
 Release 0.2.0 - 2015-08-18
 
 * Upgraded embulk to v0.7.0
