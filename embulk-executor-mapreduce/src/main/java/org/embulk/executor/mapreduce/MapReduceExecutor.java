@@ -1,6 +1,7 @@
 package org.embulk.executor.mapreduce;
 
 import java.util.List;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Set;
 import java.util.Map;
@@ -9,6 +10,7 @@ import java.util.HashMap;
 import java.io.File;
 import java.io.IOException;
 import java.io.EOFException;
+import java.nio.file.FileSystems;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
@@ -239,7 +241,7 @@ public class MapReduceExecutor
         }
 
         // jar files
-        Iterable<Path> jars = collectJars(task.getLibjars());
+        List<Path> jars = collectJars(task.getLibjars(), task.getExcludeJars());
         job.getConfiguration().set("tmpjars", StringUtils.join(",", jars));
 
         job.setInputFormatClass(EmbulkInputFormat.class);
@@ -304,7 +306,7 @@ public class MapReduceExecutor
         }
     }
 
-    private static Iterable<Path> collectJars(List<String> extraJars)
+    private List<Path> collectJars(List<String> extraJars, List<String> excludeJars)
     {
         Set<Path> set = new HashSet<Path>();
 
@@ -325,7 +327,29 @@ public class MapReduceExecutor
             }
         }
 
-        return set;
+        // validate jar files
+        List<Path> uses = new ArrayList<>(set.size());
+        for (Path path : set) {
+            String fileName = path.getName();
+            if (globMatchesWithAnyOf(excludeJars, fileName)) {
+                log.debug("Excluding jar '"+path+"'");
+            }
+            else {
+                uses.add(path);
+            }
+        }
+
+        return uses;
+    }
+
+    private static boolean globMatchesWithAnyOf(List<String> excludeJars, String fileName)
+    {
+        for (String pattern : excludeJars) {
+            if (FileSystems.getDefault().getPathMatcher("glob:"+pattern).matches(java.nio.file.Paths.get(fileName))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static void collectURLClassLoaderJars(Set<Path> set, ClassLoader cl)
