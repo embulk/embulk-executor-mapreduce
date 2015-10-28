@@ -17,6 +17,7 @@ import com.fasterxml.jackson.annotation.JsonValue;
 import org.apache.hadoop.mapreduce.TaskAttemptID;
 import org.embulk.config.ModelManager;
 import org.embulk.config.TaskReport;
+import org.embulk.config.UserDataExceptions;
 
 public class AttemptState
 {
@@ -24,6 +25,7 @@ public class AttemptState
     private final Optional<Integer> inputTaskIndex;
     private final Optional<Integer> outputTaskIndex;
     private Optional<String> exception;
+    private boolean userDataException;
     private Optional<TaskReport> inputTaskReport;
     private Optional<TaskReport> outputTaskReport;
 
@@ -40,11 +42,13 @@ public class AttemptState
             @JsonProperty("inputTaskIndex") Optional<Integer> inputTaskIndex,
             @JsonProperty("outputTaskIndex") Optional<Integer> outputTaskIndex,
             @JsonProperty("exception") Optional<String> exception,
+            @JsonProperty("userDataException") boolean userDataException,
             @JsonProperty("inputTaskReport") Optional<TaskReport> inputTaskReport,
             @JsonProperty("outputTaskReport") Optional<TaskReport> outputTaskReport)
     {
         this(TaskAttemptID.forName(attemptId),
-                inputTaskIndex, outputTaskIndex, exception,
+                inputTaskIndex, outputTaskIndex,
+                exception, userDataException,
                 inputTaskReport, outputTaskReport);
     }
 
@@ -53,6 +57,7 @@ public class AttemptState
             Optional<Integer> inputTaskIndex,
             Optional<Integer> outputTaskIndex,
             Optional<String> exception,
+            boolean userDataException,
             Optional<TaskReport> inputTaskReport,
             Optional<TaskReport> outputTaskReport)
     {
@@ -60,6 +65,7 @@ public class AttemptState
         this.inputTaskIndex = inputTaskIndex;
         this.outputTaskIndex = outputTaskIndex;
         this.exception = exception;
+        this.userDataException = userDataException;
         this.inputTaskReport = inputTaskReport;
         this.outputTaskReport = outputTaskReport;
     }
@@ -97,19 +103,28 @@ public class AttemptState
         } catch (UnsupportedEncodingException ex) {
             throw new RuntimeException(ex);
         }
-        setException(new String(os.toByteArray(), StandardCharsets.UTF_8));
+        setException(
+                new String(os.toByteArray(), StandardCharsets.UTF_8),
+                UserDataExceptions.isUserDataException(exception));
     }
 
     @JsonIgnore
-    public void setException(String exception)
+    public void setException(String exception, boolean userDataException)
     {
         this.exception = Optional.of(exception);
+        this.userDataException = userDataException;
     }
 
     @JsonProperty("exception")
     public Optional<String> getException()
     {
         return exception;
+    }
+
+    @JsonProperty("userDataException")
+    public boolean isUserDataException()
+    {
+        return userDataException;
     }
 
     @JsonProperty("inputTaskReport")

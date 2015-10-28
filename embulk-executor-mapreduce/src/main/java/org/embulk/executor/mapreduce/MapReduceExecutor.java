@@ -409,7 +409,13 @@ public class MapReduceExecutor
         boolean committed = taskReport.isPresent();
         if (attempt.getException().isPresent()) {
             if (!state.isCommitted()) {
-                state.setException(new RemoteTaskFailedException(attempt.getException().get()));
+                Exception remoteException;
+                if (attempt.isUserDataException()) {
+                    remoteException = new RemoteTaskFailedDataException(attempt.getException().get());
+                } else {
+                    remoteException = new RemoteTaskFailedException(attempt.getException().get());
+                }
+                state.setException(remoteException);
             }
         }
         if (taskReport.isPresent()) {
