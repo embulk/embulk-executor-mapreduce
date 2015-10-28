@@ -1,5 +1,6 @@
 package org.embulk.executor.mapreduce;
 
+import java.util.LinkedList;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -16,6 +17,8 @@ import java.net.URISyntaxException;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.net.MalformedURLException;
+
+import org.embulk.spi.DataException;
 import org.slf4j.Logger;
 import org.joda.time.format.DateTimeFormat;
 import com.google.inject.Inject;
@@ -393,23 +396,42 @@ public class MapReduceExecutor
             }
         }
 
+        List<RemoteTaskFailedException> aggregated = new LinkedList<>();
+
         for (AttemptReport report : reportSet.getLatestInputAttemptReports()) {
-            updateTaskState(state.getInputTaskState(report.getInputTaskIndex().get()), report.getAttemptState(), true);
+            updateTaskState(state.getInputTaskState(report.getInputTaskIndex().get()),
+                    report.getAttemptState(), true, aggregated, inProgress);
         }
 
         for (AttemptReport report : reportSet.getLatestOutputAttemptReports()) {
-            updateTaskState(state.getOutputTaskState(report.getOutputTaskIndex().get()), report.getAttemptState(), false);
+            updateTaskState(state.getOutputTaskState(report.getOutputTaskIndex().get()),
+                    report.getAttemptState(), false, aggregated, inProgress);
+        }
+
+        if (!inProgress && !aggregated.isEmpty()) {
+            DataException de = new DataException("aggregate DataExceptions on mappers and reducers");
+            for (RemoteTaskFailedException e : aggregated) {
+                de.addSuppressed(e);
+            }
+            throw de;
         }
     }
 
-    private static void updateTaskState(TaskState state, AttemptState attempt, boolean isInput)
+    private static void updateTaskState(TaskState state, AttemptState attempt, boolean isInput,
+            List<RemoteTaskFailedException> aggregated, boolean inProgress)
     {
         state.start();
         Optional<TaskReport> taskReport = isInput ? attempt.getInputTaskReport() : attempt.getOutputTaskReport();
         boolean committed = taskReport.isPresent();
         if (attempt.getException().isPresent()) {
             if (!state.isCommitted()) {
-                state.setException(new RemoteTaskFailedException(attempt.getException().get()));
+                RemoteTaskFailedException e = new RemoteTaskFailedException(attempt.getException().get());
+                state.setException(e);
+
+                if (!inProgress && e.getMessage().startsWith(DataException.class.getName())) {
+                    // it adds DataException to aggregated exceptions.
+                    aggregated.add(e);
+                }
             }
         }
         if (taskReport.isPresent()) {
