@@ -1,3 +1,10 @@
+Release 0.2.2 - 2015-10-28
+
+* Remote MapReduce tasks propagate UserDataException. This is useful for
+  applications to know whether a task failed because of external factors
+  or user input where retrying doesn't help until user fixes the input.
+
+
 Release 0.2.1 - 2015-10-26
 
 * Added exclude_jars option
