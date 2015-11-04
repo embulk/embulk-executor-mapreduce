@@ -59,6 +59,7 @@ public class TestMapReduceExecutor
     {
         ConfigSource config = loadConfigSource(embulk.newConfigLoader(), "config/embulk_mapred_config.yml");
         embulk.run(config);
+	// TODO compare input and output
     }
 
     @Test
@@ -67,6 +68,7 @@ public class TestMapReduceExecutor
     {
         ConfigSource config = loadConfigSource(embulk.newConfigLoader(), "config/embulk_mapred_partitioning_config.yml");
         embulk.run(config);
+	// TODO compare input and output
     }
 
     @Test

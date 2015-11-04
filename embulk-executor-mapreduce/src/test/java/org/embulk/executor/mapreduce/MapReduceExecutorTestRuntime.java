@@ -25,6 +25,7 @@ import org.embulk.spi.Exec;
 import org.embulk.spi.ExecAction;
 import org.embulk.spi.ExecSession;
 
+// TODO This class should be merged into EmbulkTestRuntime class. Because EmbulkTestRuntime doesn't have module overriding feature.
 public class MapReduceExecutorTestRuntime
         extends GuiceBinder
 {
