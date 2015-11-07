@@ -1,5 +1,6 @@
 package org.embulk.executor.mapreduce;
 
+import java.security.PrivilegedAction;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -16,6 +17,8 @@ import java.net.URISyntaxException;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.net.MalformedURLException;
+
+import org.apache.hadoop.security.UserGroupInformation;
 import org.slf4j.Logger;
 import org.joda.time.format.DateTimeFormat;
 import com.google.inject.Inject;
@@ -183,12 +186,12 @@ public class MapReduceExecutor
         }
     }
 
-    void run(MapReduceExecutorTask task,
-            int mapTaskCount, int reduceTaskCount, ProcessState state)
+    void run(final MapReduceExecutorTask task,
+            int mapTaskCount, final int reduceTaskCount, final ProcessState state)
     {
-        ModelManager modelManager = task.getModelManager();
+        final ModelManager modelManager = task.getModelManager();
 
-        Configuration conf = new Configuration();
+        final Configuration conf = new Configuration();
         // don't call conf.setQuietMode(false). Configuraiton has invalid resource names by default
         for (String path : task.getConfigFiles()) {
             File file = new File(path);
@@ -204,8 +207,49 @@ public class MapReduceExecutor
         }
 
         String uniqueTransactionName = getTransactionUniqueName(Exec.session());
-        Path stateDir = new Path(new Path(task.getStatePath()), uniqueTransactionName);
+        final Path stateDir = new Path(new Path(task.getStatePath()), uniqueTransactionName);
 
+        // create a dedicated classloader for this yarn application.
+        // allow task.getConfig to overwrite this parameter
+        conf.set(MRJobConfig.MAPREDUCE_JOB_CLASSLOADER, "true");  // mapreduce.job.classloader
+        conf.set(MRJobConfig.MAPREDUCE_JOB_CLASSLOADER_SYSTEM_CLASSES, "java.,org.apache.hadoop.");  // mapreduce.job.classloader.system.classes
+
+        // extra config
+        for (Map.Entry<String, String> pair : task.getConfig().entrySet()) {
+            conf.set(pair.getKey(), pair.getValue());
+        }
+
+        // framework config
+        EmbulkMapReduce.setSystemConfig(conf, modelManager, systemConfig);
+        EmbulkMapReduce.setExecutorTask(conf, modelManager, task);
+        EmbulkMapReduce.setMapTaskCount(conf, mapTaskCount);  // used by EmbulkInputFormat
+        EmbulkMapReduce.setStateDirectoryPath(conf, stateDir);
+
+        // jar files
+        List<Path> jars = collectJars(task.getLibjars(), task.getExcludeJars());
+        conf.set("tmpjars", StringUtils.join(",", jars));
+
+        String remoteUser = conf.get(MRJobConfig.USER_NAME);
+        if (remoteUser != null) {
+            UserGroupInformation.createRemoteUser(remoteUser).doAs(
+                    new PrivilegedAction<Void>()
+                    {
+                        @Override
+                        public Void run()
+                        {
+                            runJob(task, modelManager, reduceTaskCount, state, stateDir, conf);
+                            return null;
+                        }
+                    }
+            );
+        } else {
+            runJob(task, modelManager, reduceTaskCount, state, stateDir, conf);
+        }
+    }
+
+    void runJob(MapReduceExecutorTask task, ModelManager modelManager,
+            int reduceTaskCount, ProcessState state, Path stateDir, Configuration conf)
+    {
         Job job;
         try {
             job = Job.getInstance(conf);
@@ -213,22 +257,6 @@ public class MapReduceExecutor
             throw Throwables.propagate(e);
         }
         job.setJobName(task.getJobName());
-
-        // create a dedicated classloader for this yarn application.
-        // allow task.getConfig to overwrite this parameter
-        job.getConfiguration().set(MRJobConfig.MAPREDUCE_JOB_CLASSLOADER, "true");  // mapreduce.job.classloader
-        job.getConfiguration().set(MRJobConfig.MAPREDUCE_JOB_CLASSLOADER_SYSTEM_CLASSES, "java.,org.apache.hadoop.");  // mapreduce.job.classloader.system.classes
-
-        // extra config
-        for (Map.Entry<String, String> pair : task.getConfig().entrySet()) {
-            job.getConfiguration().set(pair.getKey(), pair.getValue());
-        }
-
-        // framework config
-        EmbulkMapReduce.setSystemConfig(job.getConfiguration(), modelManager, systemConfig);
-        EmbulkMapReduce.setExecutorTask(job.getConfiguration(), modelManager, task);
-        EmbulkMapReduce.setMapTaskCount(job.getConfiguration(), mapTaskCount);  // used by EmbulkInputFormat
-        EmbulkMapReduce.setStateDirectoryPath(job.getConfiguration(), stateDir);
 
         // archive plugins (also create state dir)
         PluginArchive archive = new PluginArchive.Builder()
@@ -239,10 +267,6 @@ public class MapReduceExecutor
         } catch (IOException ex) {
             throw new RuntimeException(ex);
         }
-
-        // jar files
-        List<Path> jars = collectJars(task.getLibjars(), task.getExcludeJars());
-        job.getConfiguration().set("tmpjars", StringUtils.join(",", jars));
 
         job.setInputFormatClass(EmbulkInputFormat.class);
 
