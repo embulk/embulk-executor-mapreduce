@@ -1,0 +1,44 @@
+exec:
+  type: mapreduce
+  config_files:
+  - src/test/resources/config/core-site.xml
+  - src/test/resources/config/hdfs-site.xml
+  - src/test/resources/config/mapred-site.xml
+  config:
+    k1: v1
+    k2: v2
+  partitioning:
+    type: timestamp
+    unit: hour
+    column: timestamp
+    unix_timestamp_unit: sec
+  reducers: -1
+  state_path: 'file:///tmp/embulk/'
+  job_name: embulk_mapred_0001
+  exclude_jars:
+  - '*log4j-over-slf4j*'
+in:
+  type: file
+  path_prefix: src/test/resources/fixtures/csv/sample
+  parser:
+    charset: UTF-8
+    newline: CRLF
+    type: csv
+    delimiter: ','
+    quote: ''
+    escape: ''
+    skip_header_lines: 1
+    columns:
+    - {name: timestamp, type: timestamp, format: "%Y-%m-%d %H:%M:%S"}
+    - {name: host, type: string}
+    - {name: path, type: string}
+    - {name: method, type: string}
+    - {name: referer, type: string}
+    - {name: code, type: long}
+    - {name: agent, type: string}
+    - {name: user, type: string}
+    - {name: size, type: long}
+    - {name: d, type: double}
+    - {name: flag, type: boolean}
+out:
+  type: stdout

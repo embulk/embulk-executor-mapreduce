@@ -98,3 +98,9 @@ This command builds the gem package to ./pkg/ directory:
 embulk gem install embulk-executor-mapreduce
 ```
 
+## Test
+
+The unit tests run on hadoop with standalone mode.
+```
+./gradlew classpath test
+```
