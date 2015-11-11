@@ -1,3 +1,11 @@
+Release 0.2.3 - 2015-11-11
+
+* If mapreduce.job.user.name is set, executor uses the specified user name to
+  submit a MapReduce job or accessing to HDFS. This is applicable only when
+  Hadoop is running in non-secure mode. In secure mode, that user name will be
+  ignored by HDFS and they use Kerberos instead.
+
+
 Release 0.2.2 - 2015-10-28
 
 * Remote MapReduce tasks propagate UserDataException. This is useful for
