@@ -229,7 +229,7 @@ public class MapReduceExecutor
         List<Path> jars = collectJars(task.getLibjars(), task.getExcludeJars());
         conf.set("tmpjars", StringUtils.join(",", jars));
 
-        String remoteUser = conf.get(MRJobConfig.USER_NAME);
+        String remoteUser = conf.get(MRJobConfig.USER_NAME);  // mapreduce.job.user.name
         if (remoteUser != null) {
             UserGroupInformation.createRemoteUser(remoteUser).doAs(
                     new PrivilegedAction<Void>()
