@@ -61,6 +61,7 @@ public class EmbulkMapReduce
     private static final String CK_SYSTEM_CONFIG = "embulk.mapreduce.systemConfig";
     private static final String CK_STATE_DIRECTORY_PATH = "embulk.mapreduce.stateDirectorypath";
     private static final String CK_TASK_COUNT = "embulk.mapreduce.taskCount";
+    private static final String CK_RETRY_TASKS = "embulk.mapreduce.retryTasks";
     private static final String CK_TASK = "embulk.mapreduce.task";
     private static final String CK_PLUGIN_ARCHIVE_SPECS = "embulk.mapreduce.pluginArchive.specs";
 
@@ -92,6 +93,16 @@ public class EmbulkMapReduce
     public static int getMapTaskCount(Configuration config)
     {
         return config.getInt(CK_TASK_COUNT, 0);
+    }
+
+    public static void setRetryTasks(Configuration config, boolean enabled)
+    {
+        config.setBoolean(CK_RETRY_TASKS, enabled);
+    }
+
+    public static boolean getRetryTasks(Configuration config)
+    {
+        return config.getBoolean(CK_RETRY_TASKS, false);
     }
 
     public static void setStateDirectoryPath(Configuration config, Path path)
@@ -527,12 +538,14 @@ public class EmbulkMapReduce
     {
         private Context context;
         private SessionRunner runner;
+        private boolean retryTasks;
 
         @Override
         public void setup(Context context) throws IOException, InterruptedException
         {
             this.context = context;
             this.runner = new SessionRunner(context);
+            this.retryTasks = EmbulkMapReduce.getRetryTasks(context.getConfiguration());
 
             runner.execSession(new ExecAction<Void>() {  // for Exec.getLogger
                 public Void run() throws IOException
@@ -566,16 +579,17 @@ public class EmbulkMapReduce
 
             try {
                 Executors.process(runner.getExecSession(), task, taskIndex, handler);
-            } catch (Throwable ex) {
+            }
+            catch (Exception ex) {
                 try {
                     handler.setException(ex);
                 } catch (Throwable e) {
                     e.addSuppressed(ex);
                     throw e;
                 }
-                //if (task.getTaskRecovery()) {
-                //    throw ex;
-                //}
+                if (retryTasks) {
+                    throw ex;
+                }
             }
         }
     }

@@ -128,16 +128,16 @@ public class EmbulkPartitioningMapReduce
                     filterPlugins, task.getFilterSchemas(), task.getFilterTaskSources(),
                     outputPlugin, task.getOutputSchema(), task.getOutputTaskSource(),
                     handler);
-            } catch (Throwable ex) {
+            }
+            catch (Exception ex) {
                 try {
                     handler.setException(ex);
                 } catch (Throwable e) {
                     e.addSuppressed(ex);
                     throw e;
                 }
-                //if (task.getTaskRecovery()) {
-                //    throw ex;
-                //}
+                // always throw this exception to not start reducers when input fails
+                throw ex;
             }
         }
     }
@@ -147,6 +147,7 @@ public class EmbulkPartitioningMapReduce
     {
         private Context context;
         private SessionRunner runner;
+        private boolean retryTasks;
         private AttemptStateUpdateHandler handler;
         private TransactionalPageOutput output;
         private boolean failed = false;
@@ -156,6 +157,7 @@ public class EmbulkPartitioningMapReduce
         {
             this.context = context;
             this.runner = new SessionRunner(context);
+            this.retryTasks = EmbulkMapReduce.getRetryTasks(context.getConfiguration());
 
             runner.execSession(new ExecAction<Void>() {
                 public Void run() throws Exception
@@ -199,13 +201,17 @@ public class EmbulkPartitioningMapReduce
                 for (PageWritable value : values) {
                     output.add(value.get());
                 }
-            } catch (Throwable ex) {
+            }
+            catch (Exception ex) {
                 failed = true;
                 try {
                     handler.setException(ex);
                 } catch (Throwable e) {
                     e.addSuppressed(ex);
                     throw e;
+                }
+                if (retryTasks) {
+                    throw ex;
                 }
             }
         }
