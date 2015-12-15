@@ -21,6 +21,7 @@ This executor plugin can partition data by a column before passing records to ou
     - **unit** "hour" or "day" (enum, required)
     - **timezone: UTC** only "UTC" is supported for now. (string, optional)
     - **unix_timestamp_unit** unit of the unix timestamp if type of the column is long. "sec", "milli" (for milliseconds), "micro" (for micorseconds), or "nano" (for nanoseconds). (enum, default: `"sec"`)
+    - **map_side_partition_split** distributes one partition into multiple reducers. This option is helpful when only a few reducers out of many reducers take long time. This splits one partition into smaller chunks. (integer, default: `1`)
 - **exclude_jars**: glob pattern to exclude jar files. e.g. `[log4j-over-slf4j.jar, log4j-core-*]` (array of strings, default: `[]`)
 
 
