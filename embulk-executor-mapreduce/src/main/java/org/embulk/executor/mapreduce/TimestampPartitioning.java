@@ -1,6 +1,7 @@
 package org.embulk.executor.mapreduce;
 
 import javax.validation.constraints.Min;
+import javax.validation.constraints.Max;
 import com.google.common.annotations.VisibleForTesting;
 import org.joda.time.DateTimeZone;
 import com.google.common.base.Optional;
@@ -41,6 +42,7 @@ public class TimestampPartitioning
         @Config("map_side_partition_split")
         @ConfigDefault("1")
         @Min(1)
+        @Max(65535)  // TimestampPartitioning.LongPartitionKey encodes split number in 16-bit buffer
         public int getMapSidePartitionSplit();
 
         public Column getTargetColumn();
@@ -270,7 +272,7 @@ public class TimestampPartitioning
 
         protected LongPartitionKey updateKey(long v)
         {
-            // (v + (roundRobin % mapSidePartitionSplit)) is used to distribute a large partition to
+            // ((v << 16) | (roundRobin % mapSidePartitionSplit)) is used to distribute a large partition to
             // multiple reducers. But this algorithm is not ideal under following scenario:
             //
             //   * input data is in 2 hour (hour-0 and hour-1), and partitioning unit is hour.
@@ -281,7 +283,7 @@ public class TimestampPartitioning
             //
             // So, here needs further optimization to distribute load of the reducers.
             //
-            key.set(v + (roundRobin % mapSidePartitionSplit));
+            key.set((v << 16) | (roundRobin % mapSidePartitionSplit));
             roundRobin++;
             return key;
         }
