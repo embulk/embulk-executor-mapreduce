@@ -43,6 +43,10 @@ public interface MapReduceExecutorTask
     @ConfigDefault("null")
     public Optional<Integer> getReducers();
 
+    @Config("retry_tasks")
+    @ConfigDefault("false")
+    public boolean getRetryTasks();
+
     @Config("partitioning")
     @ConfigDefault("null")
     public Optional<ConfigSource> getPartitioning();

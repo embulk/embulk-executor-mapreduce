@@ -223,6 +223,7 @@ public class MapReduceExecutor
         EmbulkMapReduce.setSystemConfig(conf, modelManager, systemConfig);
         EmbulkMapReduce.setExecutorTask(conf, modelManager, task);
         EmbulkMapReduce.setMapTaskCount(conf, mapTaskCount);  // used by EmbulkInputFormat
+        EmbulkMapReduce.setRetryTasks(conf, task.getRetryTasks());
         EmbulkMapReduce.setStateDirectoryPath(conf, stateDir);
 
         // jar files

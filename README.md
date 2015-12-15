@@ -10,6 +10,9 @@ This executor plugin can partition data by a column before passing records to ou
 - **config** overwrites configuration parameters (hash, default: `{}`)
 - **job_name** name of the job (string, default: `"embulk"`)
 - **reducers** number of reduce tasks. This parameter is used only when `partitioning` parameter is set (integer, default: same number with input tasks)
+- **retry_tasks** retries failed tasks automatically (boolean, default: `false`)
+    - when partitioning is not used: if retry_tasks is true, map tasks are retried at most `mapreduce.map.maxattempts` times (default is 4). Reduce tasks don't run.
+    - when partitioning is used: if retry_tasks is true, reduce tasks are retried at most `mapreduce.reduce.maxattempts` times (default is 4). Mapper tasks are retried regardless of this option.
 - **libjars** additional jar files to run this MapReduce application (array of strings, default: `[]`)
 - **state_path** path to a directory on the default filesystem (usually HDFS) to store temporary progress report files (string, default: `"/tmp/embulk"`)
 - **partitioning** partitioning strategy. see below (hash, default: no partitioning)
