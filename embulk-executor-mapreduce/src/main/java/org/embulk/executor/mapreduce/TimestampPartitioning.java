@@ -276,7 +276,7 @@ public class TimestampPartitioning
         public PartitionKey updateKey(PageReader record)
         {
             Timestamp v = record.getTimestamp(column);
-            return super.updateKey(unit.utcPartition(v.getEpochSecond()) + v.getEpochSecond() % mapSideSplitCount + 1);
+            return super.updateKey(unit.utcPartition(v.getEpochSecond()) + v.getEpochSecond() % mapSideSplitCount);
         }
     }
 
