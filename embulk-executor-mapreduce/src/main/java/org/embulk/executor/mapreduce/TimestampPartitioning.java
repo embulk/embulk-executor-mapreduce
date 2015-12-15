@@ -37,6 +37,10 @@ public class TimestampPartitioning
         @ConfigDefault("\"sec\"")
         public String getUnixTimestamp();
 
+        @Config("map_side_split_count")
+        @ConfigDefault("1")
+        public int getMapSideSplitCount();
+
         public Column getTargetColumn();
         public void setTargetColumn(Column column);
     }
@@ -159,7 +163,7 @@ public class TimestampPartitioning
 
         Column column = task.getTargetColumn();
         if (column.getType() instanceof TimestampType) {
-            return new TimestampPartitioner(column, Unit.of(task.getUnit()));
+            return new TimestampPartitioner(column, Unit.of(task.getUnit()), task.getMapSideSplitCount());
         } else if (column.getType() instanceof LongType) {
             return new LongUnixTimestampPartitioner(column, Unit.of(task.getUnit()), UnixTimestampUnit.of(task.getUnixTimestamp()));
         } else {
@@ -260,16 +264,19 @@ public class TimestampPartitioning
     static class TimestampPartitioner
             extends AbstractTimestampPartitioner
     {
-        public TimestampPartitioner(Column column, Unit unit)
+        private int mapSideSplitCount;
+
+        public TimestampPartitioner(Column column, Unit unit, int mapSideSplitCount)
         {
             super(column, unit);
+            this.mapSideSplitCount = mapSideSplitCount;
         }
 
         @Override
         public PartitionKey updateKey(PageReader record)
         {
             Timestamp v = record.getTimestamp(column);
-            return super.updateKey(unit.utcPartition(v.getEpochSecond()));
+            return super.updateKey(unit.utcPartition(v.getEpochSecond()) + v.getEpochSecond() % mapSideSplitCount);
         }
     }
 
