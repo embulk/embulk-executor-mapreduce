@@ -1,5 +1,6 @@
 package org.embulk.executor.mapreduce;
 
+import javax.validation.constraints.Min;
 import com.google.common.annotations.VisibleForTesting;
 import org.joda.time.DateTimeZone;
 import com.google.common.base.Optional;
@@ -36,6 +37,11 @@ public class TimestampPartitioning
         @Config("unix_timestamp_unit")
         @ConfigDefault("\"sec\"")
         public String getUnixTimestamp();
+
+        @Config("map_side_partition_split")
+        @ConfigDefault("1")
+        @Min(1)
+        public int getMapSidePartitionSplit();
 
         public Column getTargetColumn();
         public void setTargetColumn(Column column);
@@ -159,10 +165,19 @@ public class TimestampPartitioning
 
         Column column = task.getTargetColumn();
         if (column.getType() instanceof TimestampType) {
-            return new TimestampPartitioner(column, Unit.of(task.getUnit()));
-        } else if (column.getType() instanceof LongType) {
-            return new LongUnixTimestampPartitioner(column, Unit.of(task.getUnit()), UnixTimestampUnit.of(task.getUnixTimestamp()));
-        } else {
+            return new TimestampPartitioner(
+                    column,
+                    Unit.of(task.getUnit()),
+                    task.getMapSidePartitionSplit());
+        }
+        else if (column.getType() instanceof LongType) {
+            return new LongUnixTimestampPartitioner(
+                    column,
+                    Unit.of(task.getUnit()),
+                    task.getMapSidePartitionSplit(),
+                    UnixTimestampUnit.of(task.getUnixTimestamp()));
+        }
+        else {
             throw new AssertionError();
         }
     }
@@ -234,13 +249,17 @@ public class TimestampPartitioning
     {
         protected final Column column;
         protected final Unit unit;
+        protected final int mapSidePartitionSplit;
         private final LongPartitionKey key;
+        private long roundRobin;
 
-        public AbstractTimestampPartitioner(Column column, Unit unit)
+        public AbstractTimestampPartitioner(Column column, Unit unit, int mapSidePartitionSplit)
         {
             this.column = column;
             this.unit = unit;
+            this.mapSidePartitionSplit = mapSidePartitionSplit;
             this.key = new LongPartitionKey();
+            this.roundRobin = 0;
         }
 
         @Override
@@ -251,7 +270,19 @@ public class TimestampPartitioning
 
         protected LongPartitionKey updateKey(long v)
         {
-            key.set(v);
+            // (v + (roundRobin % mapSidePartitionSplit)) is used to distribute a large partition to
+            // multiple reducers. But this algorithm is not ideal under following scenario:
+            //
+            //   * input data is in 2 hour (hour-0 and hour-1), and partitioning unit is hour.
+            //   * there're 4 reducers.
+            //   * with mapSidePartitionSplit = 1, hadoop uses 3 reducers because
+            //     hour-0 is partitoned to reducer 0 (v + 0) and 1 (v + 1)
+            //     hour-1 is partitoned to reducer 1 (v + 0) and 2 (v + 1)
+            //
+            // So, here needs further optimization to distribute load of the reducers.
+            //
+            key.set(v + (roundRobin % mapSidePartitionSplit));
+            roundRobin++;
             return key;
         }
     }
@@ -260,9 +291,9 @@ public class TimestampPartitioning
     static class TimestampPartitioner
             extends AbstractTimestampPartitioner
     {
-        public TimestampPartitioner(Column column, Unit unit)
+        public TimestampPartitioner(Column column, Unit unit, int mapSidePartitionSplit)
         {
-            super(column, unit);
+            super(column, unit, mapSidePartitionSplit);
         }
 
         @Override
@@ -280,9 +311,10 @@ public class TimestampPartitioning
         private final UnixTimestampUnit unixTimestampUnit;
 
         public LongUnixTimestampPartitioner(Column column, Unit unit,
+                int mapSidePartitionSplit,
                 UnixTimestampUnit unixTimestampUnit)
         {
-            super(column, unit);
+            super(column, unit, mapSidePartitionSplit);
             this.unixTimestampUnit = unixTimestampUnit;
         }
 

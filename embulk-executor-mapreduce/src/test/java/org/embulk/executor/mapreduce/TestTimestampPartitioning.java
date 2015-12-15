@@ -117,7 +117,7 @@ public class TestTimestampPartitioning
         Column c1 = new Column(1, "c1", Types.TIMESTAMP);
         Schema schema = new Schema(Arrays.asList(c0, c1));
 
-        LongUnixTimestampPartitioner lp = new LongUnixTimestampPartitioner(c0, Unit.HOUR, UnixTimestampUnit.SEC);
+        LongUnixTimestampPartitioner lp = new LongUnixTimestampPartitioner(c0, Unit.HOUR, 1, UnixTimestampUnit.SEC);
         TimestampPartitioner tp = new TimestampPartitioner(c1, Unit.HOUR);
 
         long timeWindow = System.currentTimeMillis()/1000/3600*3600;
