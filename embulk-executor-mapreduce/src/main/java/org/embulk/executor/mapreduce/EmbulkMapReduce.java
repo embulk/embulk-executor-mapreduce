@@ -417,8 +417,11 @@ public class EmbulkMapReduce
             this.session = ExecSession.builder(embed.getInjector()).fromExecConfig(task.getExecConfig()).build();
 
             try {
+                // LocalDirAllocator allocates a directory for a job. Here adds attempt id to the path
+                // so that attempts running on the same machine don't conflict each other.
                 LocalDirAllocator localDirAllocator = new LocalDirAllocator(MRConfig.LOCAL_DIR);
-                Path destPath = localDirAllocator.getLocalPathForWrite("gems", config);
+                String dirName = context.getTaskAttemptID().toString() + "/embulk_gems";
+                Path destPath = localDirAllocator.getLocalPathForWrite(dirName, config);
                 this.localGemPath = new File(destPath.toString());
             } catch (IOException ex) {
                 throw new RuntimeException(ex);
