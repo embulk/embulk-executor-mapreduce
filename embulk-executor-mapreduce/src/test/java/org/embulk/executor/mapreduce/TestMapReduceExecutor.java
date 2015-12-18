@@ -1,8 +1,11 @@
 package org.embulk.executor.mapreduce;
 
 import com.google.common.base.Function;
+import com.google.common.base.Strings;
+import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
+import com.google.common.collect.Lists;
 import com.google.inject.Binder;
 import com.google.inject.Module;
 import com.google.inject.Provider;
@@ -20,12 +23,19 @@ import org.junit.Test;
 import org.slf4j.ILoggerFactory;
 import org.slf4j.impl.Log4jLoggerFactory;
 
+import java.io.BufferedInputStream;
+import java.io.BufferedReader;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Random;
 
 import static org.embulk.plugin.InjectedPluginSource.registerPluginTo;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -59,7 +69,13 @@ public class TestMapReduceExecutor
     {
         ConfigSource config = loadConfigSource(embulk.newConfigLoader(), "config/embulk_mapred_config.yml");
         embulk.run(config);
-        // TODO compare input and output
+        assertFileContent(
+                Lists.newArrayList(
+                        "fixtures/csv/sample1.csv",
+                        "fixtures/csv/sample1.csv"),
+                Lists.newArrayList(
+                        "fixtures/csv/embulk_mapred_output.000.00.csv",
+                        "fixtures/csv/embulk_mapred_output.001.00.csv"));
     }
 
     @Test
@@ -68,7 +84,13 @@ public class TestMapReduceExecutor
     {
         ConfigSource config = loadConfigSource(embulk.newConfigLoader(), "config/embulk_mapred_partitioning_config.yml");
         embulk.run(config);
-        // TODO compare input and output
+        assertFileContent(
+                Lists.newArrayList(
+                        "fixtures/csv/sample1.csv",
+                        "fixtures/csv/sample1.csv"),
+                Lists.newArrayList(
+                        "fixtures/csv/embulk_mapred_partitioning_output.000.00.csv",
+                        "fixtures/csv/embulk_mapred_partitioning_output.001.00.csv"));
     }
 
     @Test
@@ -247,5 +269,65 @@ public class TestMapReduceExecutor
 
             return bootstrap;
         }
+    }
+
+    private static void assertFileContent(List<String> inputFiles, List<String> outputFiles)
+    {
+        List<List<String>> inputRecords = getRecords(inputFiles);
+        inputRecords.sort(new RecordComparator());
+
+        List<List<String>> outputRecords = getRecords(outputFiles);
+        outputRecords.sort(new RecordComparator());
+
+        assertEquals(inputRecords, outputRecords);
+    }
+
+    private static class RecordComparator
+            implements Comparator<List<String>>
+    {
+        @Override
+        public int compare(List<String> r1, List<String> r2)
+        {
+            return r1.get(0).compareTo(r2.get(0));
+        }
+    }
+
+    private static List<List<String>> getRecords(List<String> files)
+    {
+        List<List<String>> records = new ArrayList<>();
+
+        try {
+            for (String file : files) {
+                try (BufferedReader r = newReader(file)) {
+                    r.readLine(); // header
+                    records.addAll(getRecords(r)); // contents
+                }
+            }
+        }
+        catch (IOException e) {
+            throw Throwables.propagate(e);
+        }
+
+        return records;
+    }
+
+    private static List<List<String>> getRecords(BufferedReader reader)
+            throws IOException
+    {
+        List<List<String>> records = new ArrayList<>();
+
+        String line;
+        while (!Strings.isNullOrEmpty(line = reader.readLine())) {
+            String[] record = line.split(",");
+            records.add(Lists.newArrayList(record));
+        }
+
+        return records;
+    }
+
+    private static BufferedReader newReader(String filePath)
+    {
+        InputStream in = new BufferedInputStream(TestMapReduceExecutor.class.getClassLoader().getResourceAsStream(filePath));
+        return new BufferedReader(new InputStreamReader(in));
     }
 }
