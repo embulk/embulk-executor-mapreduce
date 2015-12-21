@@ -30,6 +30,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Random;
@@ -274,10 +275,10 @@ public class TestMapReduceExecutor
     private static void assertFileContent(List<String> inputFiles, List<String> outputFiles)
     {
         List<List<String>> inputRecords = getRecords(inputFiles);
-        inputRecords.sort(new RecordComparator());
+        Collections.sort(inputRecords, new RecordComparator());
 
         List<List<String>> outputRecords = getRecords(outputFiles);
-        outputRecords.sort(new RecordComparator());
+        Collections.sort(outputRecords, new RecordComparator());
 
         assertEquals(inputRecords, outputRecords);
     }
