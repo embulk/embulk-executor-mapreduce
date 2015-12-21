@@ -1,3 +1,10 @@
+
+Release 0.2.4 - 2015-12-21
+
+* Added retry_tasks option
+* Added map_side_partition_split option
+
+
 Release 0.2.3 - 2015-11-11
 
 * If mapreduce.job.user.name is set, executor uses the specified user name to
