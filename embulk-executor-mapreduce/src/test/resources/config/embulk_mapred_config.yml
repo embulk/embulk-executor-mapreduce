@@ -35,4 +35,12 @@ in:
     - {name: d, type: double}
     - {name: flag, type: boolean}
 out:
-  type: stdout
+  type: file
+  path_prefix: 'src/test/resources/fixtures/csv/embulk_mapred_output.'
+  file_ext: 'csv'
+  formatter:
+    charset: UTF-8
+    newline: CRLF
+    type: csv
+    column_options:
+      timestamp: {format: '%Y-%m-%d %H:%M:%S'}
