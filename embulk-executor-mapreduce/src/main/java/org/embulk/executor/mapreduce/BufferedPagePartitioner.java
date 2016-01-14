@@ -71,6 +71,15 @@ public class BufferedPagePartitioner
             }
         }
 
+        public void jsonColumn(Column column)
+        {
+            if (source.isNull(column)) {
+                destination.setNull(column);
+            } else {
+                destination.setJson(column, source.getJson(column));
+            }
+        }
+
         public void timestampColumn(Column column)
         {
             if (source.isNull(column)) {
