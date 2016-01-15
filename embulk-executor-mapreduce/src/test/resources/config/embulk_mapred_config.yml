@@ -19,8 +19,8 @@ in:
     newline: CRLF
     type: csv
     delimiter: ','
-    quote: ''
-    escape: ''
+    quote: '"'
+    escape: '"'
     skip_header_lines: 1
     columns:
     - {name: timestamp, type: timestamp, format: "%Y-%m-%d %H:%M:%S"}
@@ -34,6 +34,7 @@ in:
     - {name: size, type: long}
     - {name: d, type: double}
     - {name: flag, type: boolean}
+    - {name: v_json, type: json}
 out:
   type: file
   path_prefix: 'src/test/resources/fixtures/csv/embulk_mapred_output.'
@@ -41,6 +42,8 @@ out:
   formatter:
     charset: UTF-8
     newline: CRLF
+    quote: '"'
+    escape: '"'
     type: csv
     column_options:
       timestamp: {format: '%Y-%m-%d %H:%M:%S'}
