@@ -104,7 +104,8 @@ public class TestMapReduceExecutor
             fail();
         }
         catch (Throwable t) {
-            assertTrue(t instanceof ConfigException);
+            assertTrue(t instanceof PartialExecutionException);
+            assertTrue(t.getCause() instanceof ConfigException);
         }
     }
 
@@ -118,7 +119,8 @@ public class TestMapReduceExecutor
             fail();
         }
         catch (Throwable t) {
-            assertTrue(t instanceof ConfigException);
+            assertTrue(t instanceof PartialExecutionException);
+            assertTrue(t.getCause() instanceof ConfigException);
         }
     }
 
@@ -132,7 +134,8 @@ public class TestMapReduceExecutor
             fail();
         }
         catch (Throwable t) {
-            assertTrue(t instanceof ConfigException);
+            assertTrue(t instanceof PartialExecutionException);
+            assertTrue(t.getCause() instanceof ConfigException);
         }
     }
 
@@ -146,7 +149,9 @@ public class TestMapReduceExecutor
             fail();
         }
         catch (Throwable t) {
-            assertTrue(t.getCause() instanceof FileNotFoundException);
+            assertTrue(t instanceof PartialExecutionException);
+            assertTrue(t.getCause() instanceof RuntimeException);
+            assertTrue(t.getCause().getCause() instanceof FileNotFoundException);
         }
     }
 

@@ -254,6 +254,7 @@ public class EmbulkPartitioningMapReduce
             this.output = output;
         }
 
+        @Override
         public ConfigDiff transaction(ConfigSource config,
                 Schema schema, int taskCount,
                 OutputPlugin.Control control)
@@ -262,6 +263,7 @@ public class EmbulkPartitioningMapReduce
             throw new RuntimeException("");
         }
 
+        @Override
         public ConfigDiff resume(TaskSource taskSource,
                 Schema schema, int taskCount,
                 OutputPlugin.Control control)
@@ -270,6 +272,7 @@ public class EmbulkPartitioningMapReduce
             throw new RuntimeException("");
         }
 
+        @Override
         public void cleanup(TaskSource taskSource,
                 Schema schema, int taskCount,
                 List<TaskReport> successTaskReports)
@@ -278,6 +281,7 @@ public class EmbulkPartitioningMapReduce
             throw new RuntimeException("");
         }
 
+        @Override
         public TransactionalPageOutput open(TaskSource taskSource, final Schema schema, int taskIndex)
         {
             return new TransactionalPageOutput() {
