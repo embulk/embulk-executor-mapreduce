@@ -25,16 +25,19 @@ import org.slf4j.impl.Log4jLoggerFactory;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Random;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.embulk.plugin.InjectedPluginSource.registerPluginTo;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
@@ -62,36 +65,42 @@ public class TestMapReduceExecutor
         bootstrap.setSystemConfig(systemConfig);
         bootstrap.overrideModules(getModuleOverrides(systemConfig));
         embulk = bootstrap.initialize();
+
+        new File("tmp").mkdirs();
     }
 
     @Test
     public void testEmbulkMapper()
             throws Exception
     {
+        new File("tmp/embulk_mapred_output.000.00.csv").delete();
+        new File("tmp/embulk_mapred_output.001.00.csv").delete();
         ConfigSource config = loadConfigSource(embulk.newConfigLoader(), "config/embulk_mapred_config.yml");
         embulk.run(config);
         assertFileContent(
                 Lists.newArrayList(
-                        "fixtures/csv/sample1.csv",
-                        "fixtures/csv/sample1.csv"),
+                        "src/test/resources/fixtures/csv/sample1.csv",
+                        "src/test/resources/fixtures/csv/sample1.csv"),
                 Lists.newArrayList(
-                        "fixtures/csv/embulk_mapred_output.000.00.csv",
-                        "fixtures/csv/embulk_mapred_output.001.00.csv"));
+                        "tmp/embulk_mapred_output.000.00.csv",
+                        "tmp/embulk_mapred_output.001.00.csv"));
     }
 
     @Test
     public void testEmbulkPartitioningMapperReducer()
             throws Exception
     {
+        new File("tmp/embulk_mapred_partitioning_output.000.00.csv").delete();
+        new File("tmp/embulk_mapred_partitioning_output.001.00.csv").delete();
         ConfigSource config = loadConfigSource(embulk.newConfigLoader(), "config/embulk_mapred_partitioning_config.yml");
         embulk.run(config);
         assertFileContent(
                 Lists.newArrayList(
-                        "fixtures/csv/sample1.csv",
-                        "fixtures/csv/sample1.csv"),
+                        "src/test/resources/fixtures/csv/sample1.csv",
+                        "src/test/resources/fixtures/csv/sample1.csv"),
                 Lists.newArrayList(
-                        "fixtures/csv/embulk_mapred_partitioning_output.000.00.csv",
-                        "fixtures/csv/embulk_mapred_partitioning_output.001.00.csv"));
+                        "tmp/embulk_mapred_partitioning_output.000.00.csv",
+                        "tmp/embulk_mapred_partitioning_output.001.00.csv"));
     }
 
     @Test
@@ -278,6 +287,7 @@ public class TestMapReduceExecutor
     }
 
     private static void assertFileContent(List<String> inputFiles, List<String> outputFiles)
+        throws IOException
     {
         List<List<String>> inputRecords = getRecords(inputFiles);
         Collections.sort(inputRecords, new RecordComparator());
@@ -299,6 +309,7 @@ public class TestMapReduceExecutor
     }
 
     private static List<List<String>> getRecords(List<String> files)
+        throws IOException
     {
         List<List<String>> records = new ArrayList<>();
 
@@ -332,8 +343,8 @@ public class TestMapReduceExecutor
     }
 
     private static BufferedReader newReader(String filePath)
+        throws IOException
     {
-        InputStream in = new BufferedInputStream(TestMapReduceExecutor.class.getClassLoader().getResourceAsStream(filePath));
-        return new BufferedReader(new InputStreamReader(in));
+        return Files.newBufferedReader(new File(filePath).toPath(), UTF_8);
     }
 }

@@ -43,7 +43,7 @@ in:
     - {name: v_json, type: json}
 out:
   type: file
-  path_prefix: 'src/test/resources/fixtures/csv/embulk_mapred_partitioning_output.'
+  path_prefix: 'tmp/embulk_mapred_partitioning_output.'
   file_ext: 'csv'
   formatter:
     charset: UTF-8
