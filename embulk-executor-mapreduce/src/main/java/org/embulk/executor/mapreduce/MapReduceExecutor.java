@@ -6,7 +6,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Set;
 import java.util.Map;
-import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.HashMap;
 import java.io.File;
 import java.io.IOException;
@@ -333,7 +333,7 @@ public class MapReduceExecutor
 
     private List<Path> collectJars(List<String> extraJars, List<String> excludeJars)
     {
-        Set<Path> set = new HashSet<Path>();
+        Set<Path> set = new LinkedHashSet<Path>();
 
         collectURLClassLoaderJars(set, Exec.class.getClassLoader());
         collectURLClassLoaderJars(set, MapReduceExecutor.class.getClassLoader());
