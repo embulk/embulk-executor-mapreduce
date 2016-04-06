@@ -337,8 +337,8 @@ public class EmbulkMapReduce
                         public void onRetry(Exception exception, int retryCount, int retryLimit, int retryWait)
                                 throws RetryGiveupException
                         {
-                            log.warn("Retrying opening state file {} ({}/{}) error: {}",
-                                    path, retryCount, retryLimit, exception);
+                            log.warn("Retrying opening state file {} ({}/{}) error: {}, {}",
+                                    path, retryCount, retryLimit, exception.getClass().getName(), exception.getMessage());
                         }
 
                         @Override
@@ -384,8 +384,8 @@ public class EmbulkMapReduce
                         public void onRetry(Exception exception, int retryCount, int retryLimit, int retryWait)
                                 throws RetryGiveupException
                         {
-                            log.warn("Retrying {} ({}/{}) error: {}",
-                                    message, retryCount, retryLimit, exception);
+                            log.warn("Retrying {} ({}/{}) error: {}, {}",
+                                    message, retryCount, retryLimit, exception.getClass().getName(), exception.getMessage());
                         }
 
                         @Override
