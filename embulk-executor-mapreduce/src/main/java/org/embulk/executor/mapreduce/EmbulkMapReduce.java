@@ -196,7 +196,7 @@ public class EmbulkMapReduce
 
     public static JobStatus getJobStatus(final Job job) throws IOException
     {
-        return hadoopOperationWithRetry("getting job status", new Callable<JobStatus>() {
+        return hadoopOperationWithRetry("Getting job status", new Callable<JobStatus>() {
             public JobStatus call() throws IOException
             {
                 return new JobStatus(job.isComplete(), job.mapProgress(), job.reduceProgress());
@@ -206,7 +206,7 @@ public class EmbulkMapReduce
 
     public static Counters getJobCounters(final Job job) throws IOException
     {
-        return hadoopOperationWithRetry("getting job counters", new Callable<Counters>() {
+        return hadoopOperationWithRetry("Getting job counters", new Callable<Counters>() {
             public Counters call() throws IOException
             {
                 return job.getCounters();
@@ -217,7 +217,7 @@ public class EmbulkMapReduce
     public static List<TaskAttemptID> listAttempts(final Configuration config,
             final Path stateDir) throws IOException
     {
-        return hadoopOperationWithRetry("getting list of attempt state files on "+stateDir, new Callable<List<TaskAttemptID>>() {
+        return hadoopOperationWithRetry("Getting list of attempt state files on "+stateDir, new Callable<List<TaskAttemptID>>() {
             public List<TaskAttemptID> call() throws IOException
             {
                 FileStatus[] stats = stateDir.getFileSystem(config).listStatus(stateDir);
@@ -244,7 +244,7 @@ public class EmbulkMapReduce
             final PluginArchive archive, final ModelManager modelManager) throws IOException
     {
         final Path path = new Path(stateDir, PLUGIN_ARCHIVE_FILE_NAME);
-        hadoopOperationWithRetry("writing plugin archive to "+path, new Callable<Void>() {
+        hadoopOperationWithRetry("Writing plugin archive to "+path, new Callable<Void>() {
             public Void call() throws IOException
             {
                 stateDir.getFileSystem(config).mkdirs(stateDir);
@@ -264,7 +264,7 @@ public class EmbulkMapReduce
             Path stateDir, final ModelManager modelManager) throws IOException
     {
         final Path path = new Path(stateDir, PLUGIN_ARCHIVE_FILE_NAME);
-        return hadoopOperationWithRetry("reading plugin archive file from "+path, new Callable<PluginArchive>() {
+        return hadoopOperationWithRetry("Reading plugin archive file from "+path, new Callable<PluginArchive>() {
                 public PluginArchive call() throws IOException
                 {
                     List<PluginArchive.GemSpec> specs = modelManager.readObject(
@@ -281,7 +281,7 @@ public class EmbulkMapReduce
             Path stateDir, final AttemptState state, final ModelManager modelManager) throws IOException
     {
         final Path path = new Path(stateDir, state.getAttemptId().toString());
-        hadoopOperationWithRetry("writing attempt state file to "+path, new Callable<Void>() {
+        hadoopOperationWithRetry("Writing attempt state file to "+path, new Callable<Void>() {
             public Void call() throws IOException
             {
                 try (FSDataOutputStream out = path.getFileSystem(config).create(path, true)) {
@@ -326,7 +326,8 @@ public class EmbulkMapReduce
                             //      e) EOFException: file exists but its format is invalid because this task is retried and last job/attempt left corrupted files (such as empty, partially written, etc)
                             //      f) IOException: FileSystem is not working
                             //
-                            if (exception instanceof EOFException && !concurrentWriteIsPossible) {
+                            if (exception instanceof EOFException) {
+                                // a) and b) don't need retrying. See MapReduceExecutor.getAttemptReports that ignores EOFException.
                                 // e) is not recoverable.
                                 return false;
                             }
@@ -337,8 +338,9 @@ public class EmbulkMapReduce
                         public void onRetry(Exception exception, int retryCount, int retryLimit, int retryWait)
                                 throws RetryGiveupException
                         {
-                            log.warn("Retrying opening state file {} ({}/{}) error: {}",
-                                    path, retryCount, retryLimit, exception);
+                            log.warn("Reading a state file failed. Retrying {}/{} after {} seconds. Message: {}",
+                                    retryCount, retryLimit, retryWait, exception.getMessage(),
+                                    retryCount % 3 == 0 ? exception : null);
                         }
 
                         @Override
@@ -384,8 +386,9 @@ public class EmbulkMapReduce
                         public void onRetry(Exception exception, int retryCount, int retryLimit, int retryWait)
                                 throws RetryGiveupException
                         {
-                            log.warn("Retrying {} ({}/{}) error: {}",
-                                    message, retryCount, retryLimit, exception);
+                            log.warn("{} failed. Retrying {}/{} after {} seconds. Message: {}",
+                                    message, retryCount, retryLimit, retryWait, exception.getMessage(),
+                                    retryCount % 3 == 0 ? exception : null);
                         }
 
                         @Override
