@@ -326,7 +326,8 @@ public class EmbulkMapReduce
                             //      e) EOFException: file exists but its format is invalid because this task is retried and last job/attempt left corrupted files (such as empty, partially written, etc)
                             //      f) IOException: FileSystem is not working
                             //
-                            if (exception instanceof EOFException && !concurrentWriteIsPossible) {
+                            if (exception instanceof EOFException) {
+                                // a) and b) don't need retrying. See MapReduceExecutor.getAttemptReports that ignores EOFException.
                                 // e) is not recoverable.
                                 return false;
                             }
