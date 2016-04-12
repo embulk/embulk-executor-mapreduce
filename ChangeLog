@@ -1,4 +1,12 @@
 
+Release 0.2.6 - 2016-04-12
+
+* Ignores EOFException when master process reads attempt state files that
+  can usually happen and safe to ignore.
+* Distributing jar files keeps loading order instead of randomizing the order
+  by hashCode.
+
+
 Release 0.2.5 - 2016-02-08
 
 * Supports Embulk v0.8.
