@@ -296,6 +296,7 @@ public class MapReduceExecutor
 
         try {
             job.submit();
+            log.info("The url to track the job: " + job.getTrackingURL());
             TaskReportSet reportSet = new TaskReportSet(job.getJobID());
 
             int interval = Job.getCompletionPollInterval(job.getConfiguration());
