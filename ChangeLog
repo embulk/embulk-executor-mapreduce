@@ -1,4 +1,9 @@
 
+Release 0.2.7 - 2016-04-12
+
+* Shows tracking URL and job ID
+
+
 Release 0.2.6 - 2016-04-12
 
 * Ignores EOFException when master process reads attempt state files that
