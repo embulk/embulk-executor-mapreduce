@@ -43,13 +43,13 @@ subprojects {
     }
 
     dependencies {
-        compile  'org.embulk:embulk-core:0.8.1'
-        provided 'org.embulk:embulk-core:0.8.1'
+        compile  'org.embulk:embulk-core:0.8.9'
+        provided 'org.embulk:embulk-core:0.8.9'
         compile 'org.apache.hadoop:hadoop-client:2.6.0'
 
         testCompile 'junit:junit:4.+'
-        testCompile 'org.embulk:embulk-core:0.8.1:tests'
-        testCompile 'org.embulk:embulk-standards:0.8.1'
+        testCompile 'org.embulk:embulk-core:0.8.9:tests'
+        testCompile 'org.embulk:embulk-standards:0.8.9'
         testRuntime 'org.embulk.executor.mapreduce:embulk-executor-mapreduce'
     }
 

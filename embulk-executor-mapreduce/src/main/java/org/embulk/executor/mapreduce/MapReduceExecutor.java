@@ -83,7 +83,7 @@ public class MapReduceExecutor
         if (inputTaskCount <= task.getLocalModeInputTasks()) {
             // if task count is equal or less than local_mode_input_tasks option, those tasks are executed by local executor
             // TODO if partitioning config is present, they are executed by hadoop local mode
-            log.info("Executes input tasks on local");
+            log.info("Executing tasks on using local threads");
             ExecutorPlugin local = Exec.newPlugin(ExecutorPlugin.class, new PluginType("local"));
             local.transaction(config, outputSchema, inputTaskCount, control);
             return;
