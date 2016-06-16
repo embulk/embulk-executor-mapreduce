@@ -1,4 +1,9 @@
 
+Release 0.2.8 - 2016-06-16
+
+* Added local_mode_input_tasks option.
+
+
 Release 0.2.7 - 2016-04-12
 
 * Shows tracking URL and job ID
