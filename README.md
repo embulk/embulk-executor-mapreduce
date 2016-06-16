@@ -23,6 +23,7 @@ This executor plugin can partition data by a column before passing records to ou
     - **unix_timestamp_unit** unit of the unix timestamp if type of the column is long. "sec", "milli" (for milliseconds), "micro" (for micorseconds), or "nano" (for nanoseconds). (enum, default: `"sec"`)
     - **map_side_partition_split** distributes one partition into multiple reducers. This option is helpful when only a few reducers out of many reducers take long time. This splits one partition into smaller chunks. (integer, default: `1`)
 - **exclude_jars**: glob pattern to exclude jar files. e.g. `[log4j-over-slf4j.jar, log4j-core-*]` (array of strings, default: `[]`)
+- **local_mode_input_tasks**: executes tasks using local threads instead of distributed MapReduce if number of input tasks is equal or less than this parameter (integer, default: 0). Setting this to 1 or 2 is useful to improve performance because starting a MapReduce job can take longer time than running a small transaction. Note: `partitioning` option is local mode is enabled. This will be fixed in a future release by implementing pseudo MapReduce execution that performs partitioning using local threads.
 
 
 ### Partitioning

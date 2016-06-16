@@ -12,6 +12,8 @@ import org.embulk.config.TaskSource;
 import org.embulk.config.ModelManager;
 import org.embulk.spi.ProcessTask;
 
+import javax.validation.constraints.Min;
+
 public interface MapReduceExecutorTask
         extends Task
 {
@@ -50,6 +52,11 @@ public interface MapReduceExecutorTask
     @Config("partitioning")
     @ConfigDefault("null")
     public Optional<ConfigSource> getPartitioning();
+
+    @Config("local_mode_input_tasks")
+    @ConfigDefault("0")
+    @Min(0)
+    public Integer getLocalModeInputTasks();
 
     @ConfigInject
     public ModelManager getModelManager();

@@ -19,6 +19,7 @@ import java.net.URLClassLoader;
 import java.net.MalformedURLException;
 
 import org.apache.hadoop.security.UserGroupInformation;
+import org.embulk.plugin.PluginType;
 import org.slf4j.Logger;
 import org.joda.time.format.DateTimeFormat;
 import com.google.inject.Inject;
@@ -78,6 +79,16 @@ public class MapReduceExecutor
             ExecutorPlugin.Control control)
     {
         final MapReduceExecutorTask task = config.loadConfig(MapReduceExecutorTask.class);
+
+        if (inputTaskCount <= task.getLocalModeInputTasks()) {
+            // if task count is equal or less than local_mode_input_tasks option, those tasks are executed by local executor
+            // TODO if partitioning config is present, they are executed by hadoop local mode
+            log.info("Executes input tasks on local");
+            ExecutorPlugin local = Exec.newPlugin(ExecutorPlugin.class, new PluginType("local"));
+            local.transaction(config, outputSchema, inputTaskCount, control);
+            return;
+        }
+
         task.setExecConfig(config);
 
         final int outputTaskCount;
