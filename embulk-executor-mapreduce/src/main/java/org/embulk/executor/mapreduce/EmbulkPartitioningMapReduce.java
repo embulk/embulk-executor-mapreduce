@@ -34,6 +34,7 @@ import org.embulk.spi.util.Executors;
 import org.embulk.executor.mapreduce.EmbulkMapReduce.SessionRunner;
 import org.embulk.executor.mapreduce.BufferedPagePartitioner.PartitionedPageOutput;
 import org.embulk.executor.mapreduce.EmbulkMapReduce.AttemptStateUpdateHandler;
+import static org.embulk.executor.mapreduce.EmbulkMapReduce.setupThreadLocalLoggerHook;
 import static org.embulk.executor.mapreduce.MapReduceExecutor.newPartitioning;
 
 public class EmbulkPartitioningMapReduce
@@ -50,7 +51,9 @@ public class EmbulkPartitioningMapReduce
             this.context = context;
             this.runner = new SessionRunner(context);
 
-            runner.execSession(new ExecAction<Void>() {  // for Exec.getLogger
+            setupThreadLocalLoggerHook();
+
+            runner.execSession(false, new ExecAction<Void>() {  // for Exec.getLogger
                 public Void run() throws IOException
                 {
                     runner.readPluginArchive().restoreLoadPathsTo(runner.getScriptingContainer());
@@ -64,7 +67,7 @@ public class EmbulkPartitioningMapReduce
         {
             final int taskIndex = key.get();
 
-            runner.execSession(new ExecAction<Void>() {
+            runner.execSession(true, new ExecAction<Void>() {
                 public Void run() throws Exception
                 {
                     process(context, taskIndex);
@@ -119,7 +122,8 @@ public class EmbulkPartitioningMapReduce
                         { }
                     });
 
-            AttemptStateUpdateHandler handler = new AttemptStateUpdateHandler(runner,
+            AttemptStateUpdateHandler handler = new AttemptStateUpdateHandler(
+                    runner.getConfiguration(), runner.getModelManager(),
                     new AttemptState(context.getTaskAttemptID(), Optional.of(taskIndex), Optional.<Integer>absent()));
 
             try {
@@ -159,7 +163,9 @@ public class EmbulkPartitioningMapReduce
             this.runner = new SessionRunner(context);
             this.retryTasks = EmbulkMapReduce.getRetryTasks(context.getConfiguration());
 
-            runner.execSession(new ExecAction<Void>() {
+            setupThreadLocalLoggerHook();
+
+            runner.execSession(false, new ExecAction<Void>() {
                 public Void run() throws Exception
                 {
                     runner.readPluginArchive().restoreLoadPathsTo(runner.getScriptingContainer());
@@ -170,7 +176,8 @@ public class EmbulkPartitioningMapReduce
                     ExecSession exec = runner.getExecSession();
                     OutputPlugin outputPlugin = exec.newPlugin(OutputPlugin.class, task.getOutputPluginType());
 
-                    handler = new AttemptStateUpdateHandler(runner,
+                    handler = new AttemptStateUpdateHandler(
+                            runner.getConfiguration(), runner.getModelManager(),
                             new AttemptState(context.getTaskAttemptID(), Optional.<Integer>absent(), Optional.of(taskIndex)));
 
                     output = outputPlugin.open(task.getOutputTaskSource(), task.getExecutorSchema(), taskIndex);
@@ -186,7 +193,7 @@ public class EmbulkPartitioningMapReduce
         public void reduce(BufferWritable key, final Iterable<PageWritable> values, final Context context)
                 throws IOException, InterruptedException
         {
-            runner.execSession(new ExecAction<Void>() {
+            runner.execSession(true, new ExecAction<Void>() {
                 public Void run() throws Exception
                 {
                     process(context, values);
@@ -218,7 +225,7 @@ public class EmbulkPartitioningMapReduce
 
         protected void cleanup(Context context) throws IOException, InterruptedException
         {
-            runner.execSession(new ExecAction<Void>() {
+            runner.execSession(false, new ExecAction<Void>() {
                 public Void run() throws Exception
                 {
                     try {

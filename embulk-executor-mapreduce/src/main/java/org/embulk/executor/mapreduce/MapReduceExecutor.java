@@ -306,6 +306,11 @@ public class MapReduceExecutor
         job.setOutputValueClass(NullWritable.class);
 
         try {
+            stateDir.getFileSystem(conf).mkdirs(EmbulkMapReduce.attemptsDirectory(stateDir));
+            stateDir.getFileSystem(conf).mkdirs(EmbulkMapReduce.logsDirectory(stateDir));
+
+            LogWatcher logWatcher = new LogWatcher(conf, stateDir);
+
             job.submit();
             log.info(String.format("Starting job = %s, tracking URL = %s",
                         job.getJobID(), job.getTrackingURL()));
@@ -327,8 +332,10 @@ public class MapReduceExecutor
                 Thread.sleep(interval);
 
                 updateProcessState(job, reportSet, stateDir, state, modelManager, true);
+                logWatcher.update();
             }
 
+            logWatcher.update();
             EmbulkMapReduce.JobStatus status = EmbulkMapReduce.getJobStatus(job);
             log.info(String.format("map %.1f%% reduce %.1f%%",
                         status.getMapProgress() * 100, status.getReduceProgress() * 100));

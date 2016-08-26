@@ -11,12 +11,15 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.EOFException;
 import java.io.InterruptedIOException;
+import java.io.StringReader;
 import java.lang.reflect.Method;
+import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import com.google.inject.Injector;
 import com.google.common.base.Optional;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.jruby.embed.ScriptingContainer;
 import org.apache.hadoop.fs.Path;
@@ -49,12 +52,20 @@ import org.embulk.spi.util.RetryExecutor.Retryable;
 import org.embulk.spi.util.RetryExecutor.RetryGiveupException;
 import org.embulk.EmbulkEmbed;
 import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.LoggerContext;
+import ch.qos.logback.classic.joran.JoranConfigurator;
+import ch.qos.logback.core.joran.spi.JoranException;
+import org.xml.sax.InputSource;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.embulk.spi.util.RetryExecutor.retryExecutor;
 
 public class EmbulkMapReduce
 {
+    private static final Logger systemLogger = LoggerFactory.getLogger(EmbulkMapReduce.class);
+
     private static final String EMBULK_FACTORY_CLASS = "embulk_factory_class";
     private static final String SYSTEM_CONFIG_SERVICE_CLASS = "mapreduce_service_class";
 
@@ -214,13 +225,34 @@ public class EmbulkMapReduce
         });
     }
 
+    static Path attemptsDirectory(Path stateDir)
+    {
+        return new Path(stateDir, "attempts");
+    }
+
+    static Path attemptStateFilePath(Path stateDir, TaskAttemptID attemptId)
+    {
+        return new Path(attemptsDirectory(stateDir), attemptId.toString());
+    }
+
+    static Path logsDirectory(Path stateDir)
+    {
+        return new Path(stateDir, "logs");
+    }
+
+    static Path logFilePath(Path stateDir, TaskAttemptID attemptId)
+    {
+        return new Path(logsDirectory(stateDir), attemptId.toString());
+    }
+
     public static List<TaskAttemptID> listAttempts(final Configuration config,
             final Path stateDir) throws IOException
     {
-        return hadoopOperationWithRetry("Getting list of attempt state files on "+stateDir, new Callable<List<TaskAttemptID>>() {
+        final Path dir = attemptsDirectory(stateDir);
+        return hadoopOperationWithRetry("Getting list of attempt state files on "+dir, new Callable<List<TaskAttemptID>>() {
             public List<TaskAttemptID> call() throws IOException
             {
-                FileStatus[] stats = stateDir.getFileSystem(config).listStatus(stateDir);
+                FileStatus[] stats = dir.getFileSystem(config).listStatus(dir);
                 ImmutableList.Builder<TaskAttemptID> builder = ImmutableList.builder();
                 for (FileStatus stat : stats) {
                     if (stat.getPath().getName().startsWith("attempt_") && stat.isFile()) {
@@ -240,6 +272,33 @@ public class EmbulkMapReduce
         });
     }
 
+    public static Map<TaskAttemptID, FileStatus> listLogFiles(final Configuration config,
+            final Path stateDir) throws IOException
+    {
+        final Path dir = logsDirectory(stateDir);
+        return hadoopOperationWithRetry("Getting list of log files on "+dir, new Callable<Map<TaskAttemptID, FileStatus>>() {
+            public Map<TaskAttemptID, FileStatus> call() throws IOException
+            {
+                FileStatus[] stats = dir.getFileSystem(config).listStatus(dir);
+                ImmutableMap.Builder<TaskAttemptID, FileStatus> builder = ImmutableMap.builder();
+                for (FileStatus stat : stats) {
+                    if (stat.getPath().getName().startsWith("attempt_") && stat.isFile()) {
+                        String name = stat.getPath().getName();
+                        TaskAttemptID id;
+                        try {
+                            id = TaskAttemptID.forName(name);
+                        } catch (Exception ex) {
+                            // ignore this file
+                            continue;
+                        }
+                        builder.put(id, stat);
+                    }
+                }
+                return builder.build();
+            }
+        });
+    }
+
     public static void writePluginArchive(final Configuration config, final Path stateDir,
             final PluginArchive archive, final ModelManager modelManager) throws IOException
     {
@@ -247,7 +306,6 @@ public class EmbulkMapReduce
         hadoopOperationWithRetry("Writing plugin archive to "+path, new Callable<Void>() {
             public Void call() throws IOException
             {
-                stateDir.getFileSystem(config).mkdirs(stateDir);
                 try (FSDataOutputStream out = path.getFileSystem(config).create(path, true)) {
                     List<PluginArchive.GemSpec> specs = archive.dump(out);
                     config.set(CK_PLUGIN_ARCHIVE_SPECS, modelManager.writeObject(specs));
@@ -280,7 +338,7 @@ public class EmbulkMapReduce
     public static void writeAttemptStateFile(final Configuration config,
             Path stateDir, final AttemptState state, final ModelManager modelManager) throws IOException
     {
-        final Path path = new Path(stateDir, state.getAttemptId().toString());
+        final Path path = attemptStateFilePath(stateDir, state.getAttemptId());
         hadoopOperationWithRetry("Writing attempt state file to "+path, new Callable<Void>() {
             public Void call() throws IOException
             {
@@ -293,11 +351,11 @@ public class EmbulkMapReduce
     }
 
     public static AttemptState readAttemptStateFile(final Configuration config,
-            Path stateDir, TaskAttemptID id, final ModelManager modelManager,
+            Path stateDir, TaskAttemptID attemptId, final ModelManager modelManager,
             final boolean concurrentWriteIsPossible) throws IOException
     {
         final Logger log = Exec.getLogger(EmbulkMapReduce.class);
-        final Path path = new Path(stateDir, id.toString());
+        final Path path = attemptStateFilePath(stateDir, attemptId);
         try {
             return retryExecutor()
                     .withRetryLimit(5)
@@ -407,6 +465,7 @@ public class EmbulkMapReduce
     public static class SessionRunner
     {
         private final Configuration config;
+        private final TaskAttemptID attemptId;
         private final EmbulkEmbed embed;
         private final MapReduceExecutorTask task;
         private final ExecSession session;
@@ -415,6 +474,7 @@ public class EmbulkMapReduce
         public SessionRunner(TaskAttemptContext context)
         {
             this.config = context.getConfiguration();
+            this.attemptId = context.getTaskAttemptID();
             this.embed = newEmbulkBootstrap(context.getConfiguration()).initialize();  // TODO use initializeCloseable?
             this.task = getExecutorTask(embed.getInjector(), context.getConfiguration());
             this.session = ExecSession.builder(embed.getInjector()).fromExecConfig(task.getExecConfig()).build();
@@ -423,7 +483,7 @@ public class EmbulkMapReduce
                 // LocalDirAllocator allocates a directory for a job. Here adds attempt id to the path
                 // so that attempts running on the same machine don't conflict each other.
                 LocalDirAllocator localDirAllocator = new LocalDirAllocator(MRConfig.LOCAL_DIR);
-                String dirName = context.getTaskAttemptID().toString() + "/embulk_gems";
+                String dirName = attemptId.toString() + "/embulk_gems";
                 Path destPath = localDirAllocator.getLocalPathForWrite(dirName, config);
                 this.localGemPath = new File(destPath.toString());
             } catch (IOException ex) {
@@ -467,14 +527,43 @@ public class EmbulkMapReduce
             return session;
         }
 
-        public <T> T execSession(ExecAction<T> action) throws IOException, InterruptedException
+        public <T> T execSession(boolean run, ExecAction<T> action) throws IOException, InterruptedException
         {
             try {
-                return Exec.doWith(session, action);
+                FileSystemAttemptLogAppender logger = openLoggerIfSupported(run);
+                if (logger == null) {
+                    return Exec.doWith(session, action);
+                }
+                else {
+                    try {
+                        ThreadLocalLogger.instance.set(logger);
+                        return Exec.doWith(session, action);
+                    }
+                    finally {
+                        ThreadLocalLogger.instance.set(null);
+                        logger.close();
+                    }
+                }
             } catch (ExecutionException e) {
                 Throwables.propagateIfInstanceOf(e.getCause(), IOException.class);
                 Throwables.propagateIfInstanceOf(e.getCause(), InterruptedException.class);
                 throw Throwables.propagate(e.getCause());
+            }
+        }
+
+        private FileSystemAttemptLogAppender openLoggerIfSupported(boolean run)
+            throws IOException
+        {
+            try {
+                Path path = logFilePath(getStateDirectoryPath(config), attemptId);
+                return FileSystemAttemptLogAppender.openIfSupported(config, path, run);
+            }
+            catch (Exception ex) {
+                // show also to stderr because logger is likely broken
+                systemLogger.error("Failed to hook logger. Task logging is disabled.", ex);
+                System.err.println("Failed to hook logger. Task logging is disabled.");
+                ex.printStackTrace(System.err);
+                return null;
             }
         }
 
@@ -492,12 +581,12 @@ public class EmbulkMapReduce
         private final ModelManager modelManager;
         private final AttemptState state;
 
-        public AttemptStateUpdateHandler(SessionRunner runner, AttemptState state)
+        public AttemptStateUpdateHandler(Configuration config, ModelManager modelManager, AttemptState state)
         {
-            this.config = runner.getConfiguration();
+            this.config = config;
             this.stateDir = getStateDirectoryPath(config);
             this.state = state;
-            this.modelManager = runner.getModelManager();
+            this.modelManager = modelManager;
         }
 
         @Override
@@ -553,7 +642,9 @@ public class EmbulkMapReduce
             this.runner = new SessionRunner(context);
             this.retryTasks = EmbulkMapReduce.getRetryTasks(context.getConfiguration());
 
-            runner.execSession(new ExecAction<Void>() {  // for Exec.getLogger
+            setupThreadLocalLoggerHook();
+
+            runner.execSession(false, new ExecAction<Void>() {  // for Exec.getLogger
                 public Void run() throws IOException
                 {
                     runner.readPluginArchive().restoreLoadPathsTo(runner.getScriptingContainer());
@@ -567,7 +658,7 @@ public class EmbulkMapReduce
         {
             final int taskIndex = key.get();
 
-            runner.execSession(new ExecAction<Void>() {
+            runner.execSession(true, new ExecAction<Void>() {
                 public Void run() throws Exception
                 {
                     process(context, taskIndex);
@@ -580,7 +671,8 @@ public class EmbulkMapReduce
         {
             ProcessTask task = runner.getMapReduceExecutorTask().getProcessTask();
 
-            AttemptStateUpdateHandler handler = new AttemptStateUpdateHandler(runner,
+            AttemptStateUpdateHandler handler = new AttemptStateUpdateHandler(
+                    runner.getConfiguration(), runner.getModelManager(),
                     new AttemptState(context.getTaskAttemptID(), Optional.of(taskIndex), Optional.of(taskIndex)));
 
             try {
@@ -610,6 +702,57 @@ public class EmbulkMapReduce
                 throws IOException, InterruptedException
         {
             // do nothing
+        }
+    }
+
+    static void setupThreadLocalLoggerHook()
+    {
+        try {
+            LoggerContext context = (LoggerContext) LoggerFactory.getILoggerFactory();
+
+            JoranConfigurator configurator = new JoranConfigurator();
+            configurator.setContext(context);
+            context.reset();
+
+            String xml =  "" +
+                "<configuration>" +
+                  "<appender name=\"embulk-context\" class=\"org.embulk.executor.mapreduce.LogbackThreadLocalLoggerAdapter\">" +
+                  "</appender>" +
+                  "<root level=\"DEBUG\">" +
+                    "<appender-ref ref=\"embulk-context\"/>" +
+                  "</root>" +
+                "</configuration>";
+            configurator.doConfigure(new InputSource(new StringReader(xml)));
+
+            // This actually fails to setup LogbackThreadLocalLoggerAdapter because context.getClass().getClassLoader()
+            // can't lookup org.embulk.executor.mapreduce.LogbackThreadLocalLoggerAdapter, plus an unknown reason.
+            // But it suceeds to create only one logger. So here overrides it to use
+            // LogbackThreadLocalLoggerAdapter programmably.
+
+            LogbackThreadLocalLoggerAdapter adapter = new LogbackThreadLocalLoggerAdapter();
+            adapter.setContext(context);
+            adapter.start();
+
+            Logger rootLogger = LoggerFactory.getLogger("");
+            while (true) {
+                Field f = ch.qos.logback.classic.Logger.class.getDeclaredField("parent");
+                f.setAccessible(true);
+                Logger parent = (Logger) f.get(rootLogger);
+                if (parent == null) {
+                    break;
+                }
+                else {
+                    rootLogger = parent;
+                }
+            }
+
+            ((ch.qos.logback.classic.Logger) rootLogger).addAppender(adapter);
+        }
+        catch (Exception ex) {
+            // show also to stderr because logger is likely broken
+            systemLogger.error("Failed to hook logger. Task logging is disabled.", ex);
+            System.err.println("Failed to hook logger. Task logging is disabled.");
+            ex.printStackTrace(System.err);
         }
     }
 }
