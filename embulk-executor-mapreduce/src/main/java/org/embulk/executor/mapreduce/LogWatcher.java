@@ -2,8 +2,10 @@ package org.embulk.executor.mapreduce;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Date;
 import java.util.HashMap;
 import java.io.IOException;
+import java.text.SimpleDateFormat;
 import net.jpountz.lz4.LZ4SafeDecompressor;
 import net.jpountz.lz4.LZ4Factory;
 import net.jpountz.lz4.LZ4Exception;
@@ -60,6 +62,8 @@ public class LogWatcher
 
     private byte[] readBuffer = new byte[32*1024];
     private final byte[] decompBuffer = new byte[64*1024];
+
+    private final SimpleDateFormat timeFormatter = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
 
     private final ObjectMapper mapper = new ObjectMapper();
 
@@ -144,23 +148,30 @@ public class LogWatcher
         Thread currentThread = Thread.currentThread();
         String savedThreadName = currentThread.getName();
         try {
+            // fake thread name
             currentThread.setName(message.getThreadName());
+
+            // fake logger name
             String loggerName = message.getLoggerName();
             if (!lastLoggerName.equals(loggerName)) {
                 lastLogger = LoggerFactory.getLogger(loggerName);
                 lastLoggerName = loggerName;
             }
+
+            // slf4j doesn't allow to override log timestamp. include time in message
+            String timestamp = timeFormatter.format(new Date(message.getTimestamp()));
+
             switch (message.getLevel()) {
             case TRACE:
-                lastLogger.trace(message.getMessage());
+                lastLogger.trace("{}: {}", message.getMessage(), timestamp);
             case DEBUG:
-                lastLogger.debug(message.getMessage());
+                lastLogger.debug("{}: {}", message.getMessage(), timestamp);
             case INFO:
-                lastLogger.info(message.getMessage());
+                lastLogger.info("{}: {}", message.getMessage(), timestamp);
             case WARN:
-                lastLogger.warn(message.getMessage());
+                lastLogger.warn("{}: {}", message.getMessage(), timestamp);
             case ERROR:
-                lastLogger.error(message.getMessage());
+                lastLogger.error("{}: {}", message.getMessage(), timestamp);
             }
         }
         finally {
