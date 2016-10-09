@@ -340,6 +340,15 @@ public class MapReduceExecutor
             if (counters != null) {
                 log.info(counters.toString());
             }
+
+            // delete state dir
+            try {
+                if (job.isSuccessful()) {
+                    stateDir.getFileSystem(job.getConfiguration()).delete(stateDir, true);
+                }
+            } catch (IOException ex) {
+                log.warn(String.format("Unable to delete stateDir %s", stateDir), ex);
+            }
         } catch (IOException | InterruptedException | ClassNotFoundException e) {
             throw Throwables.propagate(e);
         }
