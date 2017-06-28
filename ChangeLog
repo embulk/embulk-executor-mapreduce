@@ -1,4 +1,9 @@
 
+Release 0.3.0 - 2017-06-27
+
+* Catch up with a change in Embulk 0.8.24 on PluginType.
+
+
 Release 0.2.8 - 2016-06-16
 
 * Added local_mode_input_tasks option.
