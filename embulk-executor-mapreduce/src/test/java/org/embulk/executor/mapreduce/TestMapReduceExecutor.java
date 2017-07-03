@@ -219,7 +219,16 @@ public class TestMapReduceExecutor
         @Override
         public void configure(Binder binder)
         {
-            registerPluginTo(binder, ExecutorPlugin.class, "mapreduce", MapReduceExecutor.class);
+            final String pluginName;
+            try (final InputStream input = TestMapReduceExecutor.class.getClassLoader().getResourceAsStream(
+                     "plugin_name.txt")) {
+                pluginName = (new BufferedReader(new InputStreamReader(input, UTF_8))).readLine();
+            }
+            catch (Exception ex) {
+                throw new RuntimeException(ex);
+            }
+            System.out.println(pluginName);
+            registerPluginTo(binder, ExecutorPlugin.class, pluginName, MapReduceExecutor.class);
         }
     }
 
