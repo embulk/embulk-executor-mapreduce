@@ -4,6 +4,7 @@ import com.google.common.base.Function;
 import com.google.common.base.Strings;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.inject.Binder;
@@ -46,7 +47,9 @@ import static org.junit.Assert.fail;
 // this tests use Hadoop's standalone mode
 public class TestMapReduceExecutor
 {
+    private static final String RESOURCES_PATH = "build/resources/test/";
     private EmbulkEmbed embulk;
+    private ConfigLoader configLoader;
     private Random random = new RandomManager(System.currentTimeMillis()).getRandom();
 
     @Before
@@ -65,6 +68,7 @@ public class TestMapReduceExecutor
         bootstrap.setSystemConfig(systemConfig);
         bootstrap.overrideModules(getModuleOverrides(systemConfig));
         embulk = bootstrap.initialize();
+        configLoader = embulk.newConfigLoader();
 
         new File("tmp").mkdirs();
     }
@@ -75,12 +79,13 @@ public class TestMapReduceExecutor
     {
         new File("tmp/embulk_mapred_output.000.00.csv").delete();
         new File("tmp/embulk_mapred_output.001.00.csv").delete();
-        ConfigSource config = loadConfigSource(embulk.newConfigLoader(), "config/embulk_mapred_config.yml");
+        ConfigSource config = loadConfigSource(configLoader, "config/embulk_mapred_config.yml")
+                .merge(configLoader.newConfigSource().set("exec", ImmutableMap.of("type", getPluginName())));
         embulk.run(config);
         assertFileContent(
                 Lists.newArrayList(
-                        "src/test/resources/fixtures/csv/sample1.csv",
-                        "src/test/resources/fixtures/csv/sample1.csv"),
+                        RESOURCES_PATH + "fixtures/csv/sample1.csv",
+                        RESOURCES_PATH + "fixtures/csv/sample1.csv"),
                 Lists.newArrayList(
                         "tmp/embulk_mapred_output.000.00.csv",
                         "tmp/embulk_mapred_output.001.00.csv"));
@@ -92,12 +97,13 @@ public class TestMapReduceExecutor
     {
         new File("tmp/embulk_mapred_partitioning_output.000.00.csv").delete();
         new File("tmp/embulk_mapred_partitioning_output.001.00.csv").delete();
-        ConfigSource config = loadConfigSource(embulk.newConfigLoader(), "config/embulk_mapred_partitioning_config.yml");
+        ConfigSource config = loadConfigSource(configLoader, "config/embulk_mapred_partitioning_config.yml")
+                .merge(configLoader.newConfigSource().set("exec", ImmutableMap.of("type", getPluginName())));
         embulk.run(config);
         assertFileContent(
                 Lists.newArrayList(
-                        "src/test/resources/fixtures/csv/sample1.csv",
-                        "src/test/resources/fixtures/csv/sample1.csv"),
+                        RESOURCES_PATH + "fixtures/csv/sample1.csv",
+                        RESOURCES_PATH + "fixtures/csv/sample1.csv"),
                 Lists.newArrayList(
                         "tmp/embulk_mapred_partitioning_output.000.00.csv",
                         "tmp/embulk_mapred_partitioning_output.001.00.csv"));
@@ -108,7 +114,8 @@ public class TestMapReduceExecutor
             throws Exception
     {
         try {
-            ConfigSource config = loadConfigSource(embulk.newConfigLoader(), "config/embulk_mapred_invalid_config_files_config.yml");
+            ConfigSource config = loadConfigSource(configLoader, "config/embulk_mapred_invalid_config_files_config.yml")
+                    .merge(configLoader.newConfigSource().set("exec", ImmutableMap.of("type", getPluginName())));
             embulk.run(config);
             fail();
         }
@@ -123,7 +130,8 @@ public class TestMapReduceExecutor
             throws Exception
     {
         try {
-            ConfigSource config = loadConfigSource(embulk.newConfigLoader(), "config/embulk_mapred_invalid_partitioning_config.yml");
+            ConfigSource config = loadConfigSource(configLoader, "config/embulk_mapred_invalid_partitioning_config.yml")
+                    .merge(configLoader.newConfigSource().set("exec", ImmutableMap.of("type", getPluginName())));
             embulk.run(config);
             fail();
         }
@@ -138,7 +146,8 @@ public class TestMapReduceExecutor
             throws Exception
     {
         try {
-            ConfigSource config = loadConfigSource(embulk.newConfigLoader(), "config/embulk_mapred_invalid_reducers_config.yml");
+            ConfigSource config = loadConfigSource(configLoader, "config/embulk_mapred_invalid_reducers_config.yml")
+                    .merge(configLoader.newConfigSource().set("exec", ImmutableMap.of("type", getPluginName())));
             embulk.run(config);
             fail();
         }
@@ -153,7 +162,8 @@ public class TestMapReduceExecutor
             throws Exception
     {
         try {
-            ConfigSource config = loadConfigSource(embulk.newConfigLoader(), "config/embulk_mapred_invalid_libjars_config.yml");
+            ConfigSource config = loadConfigSource(configLoader, "config/embulk_mapred_invalid_libjars_config.yml")
+                    .merge(configLoader.newConfigSource().set("exec", ImmutableMap.of("type", getPluginName())));
             embulk.run(config);
             fail();
         }
@@ -169,7 +179,8 @@ public class TestMapReduceExecutor
             throws Exception
     {
         try {
-            ConfigSource config = loadConfigSource(embulk.newConfigLoader(), "config/embulk_mapred_stop_on_invalid_record_config.yml");
+            ConfigSource config = loadConfigSource(configLoader, "config/embulk_mapred_stop_on_invalid_record_config.yml")
+                    .merge(configLoader.newConfigSource().set("exec", ImmutableMap.of("type", getPluginName())));
             embulk.run(config);
             fail();
         }
@@ -213,21 +224,23 @@ public class TestMapReduceExecutor
         return ImmutableList.<Module>of(new LoggerOverrideModule());
     }
 
+    private static String getPluginName()
+    {
+        try (final InputStream input = TestMapReduceExecutor.class.getClassLoader().getResourceAsStream(
+                "plugin_name.txt")) {
+            return (new BufferedReader(new InputStreamReader(input, UTF_8))).readLine();
+        } catch (IOException e) {
+            throw Throwables.propagate(e);
+        }
+    }
+
     static class ExecutorPluginApplyModule
             implements Module
     {
         @Override
         public void configure(Binder binder)
         {
-            final String pluginName;
-            try (final InputStream input = TestMapReduceExecutor.class.getClassLoader().getResourceAsStream(
-                     "plugin_name.txt")) {
-                pluginName = (new BufferedReader(new InputStreamReader(input, UTF_8))).readLine();
-            }
-            catch (Exception ex) {
-                throw new RuntimeException(ex);
-            }
-            System.out.println(pluginName);
+            final String pluginName = getPluginName();
             registerPluginTo(binder, ExecutorPlugin.class, pluginName, MapReduceExecutor.class);
         }
     }
