@@ -1,9 +1,9 @@
 exec:
   type: mapreduce
   config_files:
-  - src/test/resources/config/core-site.xml
-  - src/test/resources/config/hdfs-site.xml
-  - src/test/resources/config/mapred-site.xml
+  - build/resources/test/config/core-site.xml
+  - build/resources/test/config/hdfs-site.xml
+  - build/resources/test/config/mapred-site.xml
   config:
     k1: v1
     k2: v2
@@ -19,7 +19,7 @@ exec:
   map_side_partition_split: 2
 in:
   type: file
-  path_prefix: src/test/resources/fixtures/csv/sample
+  path_prefix: build/resources/test/fixtures/csv/sample
   parser:
     charset: UTF-8
     newline: CRLF

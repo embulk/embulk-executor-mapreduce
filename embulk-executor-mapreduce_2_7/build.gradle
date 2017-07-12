@@ -1,0 +1,15 @@
+sourceSets {
+    main {
+        java { srcDir "${project.rootDir}/embulk-executor-mapreduce/src/main/java" }
+        resources { srcDir "${project.rootDir}/embulk-executor-mapreduce/src/main/resources" }
+    }
+    test {
+        java { srcDir "${project.rootDir}/embulk-executor-mapreduce/src/test/java" }
+        resources { srcDir "${project.rootDir}/embulk-executor-mapreduce/src/test/resources" }
+    }
+}
+
+dependencies {
+    compile 'org.apache.hadoop:hadoop-client:2.7.3'
+    testRuntime 'org.embulk.executor.mapreduce:embulk-executor-mapreduce_2_7'
+}
