@@ -1,3 +1,7 @@
+Release 0.4.0 - 2017-09-05
+
+* Split embulk-executor-mapreduce to _2_6 (for Hadoop 2.6.*) and _2_7 (for Hadoop 2.7.*).
+
 
 Release 0.3.0 - 2017-06-27
 
