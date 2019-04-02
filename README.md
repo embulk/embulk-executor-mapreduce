@@ -1,3 +1,20 @@
+# Caution
+
+**The open-sourced MapReduce Executor plugin is NO LONGER SUPPORTED since Embulk v0.9.18.**
+
+If you want to use the open-sourced MapReduce Executor:
+
+* Wait for Embulk v0.10 series, **and**
+* Contribute to this MapReduce Executor plugin to catch up with the Embulk core changes to be done toward Embulk v0.10
+* Note that **Embulk v0.10 will not support the MapReduce Executor by default unless we receive special contributions**.
+
+See also:
+
+* https://github.com/embulk/embulk/issues/1119
+* https://groups.google.com/d/msg/embulk-announce/i26O7kT__OY/0yTFJ8SBAAAJ
+
+----
+
 # Hadoop MapReduce executor plugin for Embulk
 
 `embulk-executor-embulk` runs bulk load tasks of Embulk on a [Hadoop YARN](https://hadoop.apache.org/) cluster, a distributed computing environment.
